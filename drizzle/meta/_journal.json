@@ -15,6 +15,13 @@
       "when": 1765783447291,
       "tag": "0001_white_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1765793238215,
+      "tag": "0002_cute_longshot",
+      "breakpoints": true
     }
   ]
 }

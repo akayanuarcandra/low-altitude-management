@@ -25,21 +25,38 @@ export default async function DronesPage() {
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Create Drone */}
-          <form action={createDrone} className="grid grid-cols-5 gap-2">
-            <Input name="name" placeholder="Name" required className="col-span-2" />
-            <Input name="latitude" type="number" step="0.00000001" placeholder="Latitude" required />
-            <Input name="longitude" type="number" step="0.00000001" placeholder="Longitude" required />
-            <NativeSelect name="towerId" required defaultValue="">
-              <option value="" disabled>Select Tower</option>
-              {towersList.map((t) => (
-                <option key={t.id} value={t.id}>{t.name} ({t.rangeMeters}m)</option>
-              ))}
-            </NativeSelect>
-            <Input name="status" placeholder="Status (e.g. active)" />
-            <div className="col-span-5">
-              <Button type="submit">Add Drone</Button>
-            </div>
-          </form>
+          {towersList.length === 0 ? (
+            <p className="text-sm text-amber-600 bg-amber-50 p-3 rounded border border-amber-200">
+              Please create at least one tower before adding drones.
+            </p>
+          ) : (
+            <>
+              <div className="text-sm text-blue-600 bg-blue-50 p-3 rounded border border-blue-200">
+                <p className="font-semibold mb-1">Available Towers:</p>
+                {towersList.map((t) => (
+                  <div key={t.id} className="ml-2">
+                    • {t.name}: Lat {String(t.latitude)}, Lon {String(t.longitude)}, Range {t.rangeMeters}m
+                  </div>
+                ))}
+                <p className="mt-2 text-xs">💡 Tip: Drone must be within tower range. Use coordinates close to the tower location.</p>
+              </div>
+              <form action={createDrone} className="grid grid-cols-5 gap-2">
+                <Input name="name" placeholder="Name" required className="col-span-2" />
+                <Input name="latitude" type="number" step="0.00000001" placeholder="Latitude" required />
+                <Input name="longitude" type="number" step="0.00000001" placeholder="Longitude" required />
+                <NativeSelect name="towerId" required>
+                  <option value="" disabled>Select Tower</option>
+                  {towersList.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name} ({t.rangeMeters}m)</option>
+                  ))}
+                </NativeSelect>
+                <Input name="status" placeholder="Status (optional)" defaultValue="active" />
+                <div className="col-span-5">
+                  <Button type="submit">Add Drone</Button>
+                </div>
+              </form>
+            </>
+          )}
 
           {/* List */}
           <div className="space-y-2">

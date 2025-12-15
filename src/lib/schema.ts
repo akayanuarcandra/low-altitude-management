@@ -44,3 +44,15 @@ export const drones = pgTable("Drone", {
         foreignColumns: [towers.id],
     }),
 }));
+
+/**
+ * Waypoints Table
+ * Represents destination points placed on the map where drones can navigate to.
+ */
+export const waypoints = pgTable("Waypoint", {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(),
+    longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+});

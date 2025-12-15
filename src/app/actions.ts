@@ -1,7 +1,7 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { tasks, towers, drones } from "@/lib/schema";
+import { tasks, towers, drones, waypoints } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -77,20 +77,42 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 
 export async function createDrone(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
-  const latitude = Number(formData.get("latitude"));
-  const longitude = Number(formData.get("longitude"));
-  const towerId = Number(formData.get("towerId"));
+  const latitudeRaw = formData.get("latitude");
+  const longitudeRaw = formData.get("longitude");
+  const towerIdRaw = formData.get("towerId");
   const status = ((formData.get("status") as string) || "active").trim();
 
-  if (!name) return;
-  if ([latitude, longitude, towerId].some((n) => Number.isNaN(n))) return;
+  if (!name) {
+    console.error("createDrone: name is required");
+    return;
+  }
+
+  const latitude = Number(latitudeRaw);
+  const longitude = Number(longitudeRaw);
+  const towerId = Number(towerIdRaw);
+
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+    console.error("createDrone: invalid coordinates", { latitude, longitude });
+    return;
+  }
+
+  if (!towerIdRaw || towerIdRaw === "" || Number.isNaN(towerId) || towerId <= 0) {
+    console.error("createDrone: invalid towerId", { towerIdRaw, towerId });
+    return;
+  }
 
   const [tower] = await db.select().from(towers).where(eq(towers.id, towerId)).limit(1);
-  if (!tower) return;
+  if (!tower) {
+    console.error("createDrone: tower not found", { towerId });
+    return;
+  }
 
   // Validate that the drone is initially within tower range
   const dist = haversineMeters(latitude, longitude, Number(tower.latitude), Number(tower.longitude));
-  if (dist > Number(tower.rangeMeters)) return;
+  if (dist > Number(tower.rangeMeters)) {
+    console.error("createDrone: drone out of range", { dist, range: tower.rangeMeters });
+    return;
+  }
 
   await db.insert(drones).values({ name, latitude, longitude, towerId, status });
   revalidatePath("/dashboard/drones");
@@ -124,4 +146,32 @@ export async function updateDrone(id: number, data: {
 export async function deleteDrone(id: number) {
   await db.delete(drones).where(eq(drones.id, id));
   revalidatePath("/dashboard/drones");
+}
+
+// Waypoint CRUD
+export async function createWaypoint(formData: FormData) {
+  const name = (formData.get("name") as string)?.trim();
+  const latitudeRaw = formData.get("latitude");
+  const longitudeRaw = formData.get("longitude");
+
+  if (!name) {
+    console.error("createWaypoint: name is required");
+    return;
+  }
+
+  const latitude = Number(latitudeRaw);
+  const longitude = Number(longitudeRaw);
+
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+    console.error("createWaypoint: invalid coordinates", { latitude, longitude });
+    return;
+  }
+
+  await db.insert(waypoints).values({ name, latitude, longitude });
+  revalidatePath("/dashboard/map");
+}
+
+export async function deleteWaypoint(id: number) {
+  await db.delete(waypoints).where(eq(waypoints.id, id));
+  revalidatePath("/dashboard/map");
 }
