@@ -1,58 +1,83 @@
 import { db } from "@/lib/db";
 import { towers } from "@/lib/schema";
 import { desc } from "drizzle-orm";
-import { createTower, deleteTower } from "@/app/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import Link from "next/link";
+import { MapView } from "@/components/map/map-view";
+import { DeleteTowerButton } from "./delete-tower-button";
 
 /**
  * Towers Management Page
- * - Lists towers
- * - Form to create a new tower
- * - Delete existing towers
+ * - Map view showing towers with delete buttons
+ * - List view with tower details
+ * - Link to create a new tower
  */
 export default async function TowersPage() {
   const items = await db.select().from(towers).orderBy(desc(towers.createdAt));
 
-  return (
-    <div className="min-h-screen bg-gray-100 p-8 flex justify-center">
-      <Card className="w-full max-w-2xl h-fit">
-        <CardHeader>
-          <CardTitle>Towers</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Create Tower */}
-          <form action={createTower} className="grid grid-cols-5 gap-2">
-            <Input name="name" placeholder="Name" required className="col-span-2" />
-            <Input name="latitude" type="number" step="0.00000001" placeholder="Latitude" required />
-            <Input name="longitude" type="number" step="0.00000001" placeholder="Longitude" required />
-            <Input name="rangeMeters" type="number" placeholder="Range (m)" required />
-            <div className="col-span-5 flex items-center gap-2">
-              <label className="text-sm text-gray-600 flex items-center gap-2">
-                <input type="checkbox" name="active" defaultChecked /> Active
-              </label>
-              <Button type="submit">Add Tower</Button>
-            </div>
-          </form>
+  const towersDTO = items.map((t) => ({
+    id: t.id,
+    name: t.name,
+    latitude: Number(t.latitude),
+    longitude: Number(t.longitude),
+    rangeMeters: Number(t.rangeMeters),
+    active: (t as any).active ?? true,
+  }));
 
-          {/* List */}
-          <div className="space-y-2">
-            {items.map((t) => (
-              <div key={t.id} className="flex items-center justify-between p-2 border rounded bg-white">
-                <div className="text-sm">
-                  <div className="font-semibold">{t.name} {t.active ? "(active)" : "(inactive)"}</div>
-                  <div className="text-gray-600">Lat: {String(t.latitude)} | Lon: {String(t.longitude)} | Range: {t.rangeMeters} m</div>
-                </div>
-                <form action={async () => { "use server"; await deleteTower(t.id); }}>
-                  <Button variant="destructive" size="sm">Delete</Button>
-                </form>
-              </div>
-            ))}
-            {items.length === 0 && <p className="text-gray-500 text-sm">No towers yet.</p>}
+  return (
+    <div className="min-h-screen bg-gray-100">
+      <div className="pt-8 px-8">
+        <div className="mb-4">
+          <h1 className="text-3xl font-bold mb-2">Towers</h1>
+          <p className="text-gray-600">Tower management area</p>
+        </div>
+        <div className="max-w-9xl mx-auto flex gap-4">
+          {/* Map View - Left Side */}
+          <div className="flex-1">
+            {items.length > 0 && (
+              <Card>
+                <CardContent className="">
+                  <div className="h-170 rounded-md overflow-hidden border">
+                    <MapView towers={towersDTO} drones={[]} waypoints={[]} showWaypointToggle={false} />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
-        </CardContent>
-      </Card>
+
+          {/* List View - Right Side */}
+          <div className="w-96">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Tower List</CardTitle>
+                <Link href="/dashboard/towers/new">
+                  <Button size="sm">+ Add</Button>
+                </Link>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  {items.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between p-2 border rounded bg-white">
+                      <div className="text-sm">
+                        <div className="font-semibold">{t.name} {t.active ? "(active)" : "(inactive)"}</div>
+                        <div className="text-gray-600">Lat: {String(t.latitude)} <br /> Lon: {String(t.longitude)} <br /> Range: {t.rangeMeters} m</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/dashboard/towers/${t.id}/edit`}>
+                          <Button variant="outline" size="sm">Edit</Button>
+                        </Link>
+                        <DeleteTowerButton towerId={t.id} towerName={t.name} />
+                      </div>
+                    </div>
+                  ))}
+                  {items.length === 0 && <p className="text-gray-500 text-sm">No towers yet.</p>}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { updateDrone, createWaypoint, deleteWaypoint } from "@/app/actions";
+import { updateDrone, createWaypoint, deleteWaypoint, deleteTower } from "@/app/actions";
 
 // Dynamic imports for Leaflet (client-side only)
 let L: any = null;
@@ -44,10 +44,11 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   return R * c;
 }
 
-export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; drones: DroneDTO[]; waypoints: WaypointDTO[] }) {
+export function MapView({ towers, drones, waypoints, showWaypointToggle = true }: { towers: TowerDTO[]; drones: DroneDTO[]; waypoints: WaypointDTO[]; showWaypointToggle?: boolean }) {
   const mapRef = useRef<any>(null);
   const layerGroupRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const droneMarkersRef = useRef<any>(globalThis.Map ? new globalThis.Map() : {});
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingWaypoint, setIsCreatingWaypoint] = useState(false);
 
@@ -95,6 +96,7 @@ export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; dro
 
     // Clear previous overlays
     layerGroup.clearLayers();
+    droneMarkersRef.current.clear();
 
     const bounds = L.latLngBounds([]);
 
@@ -111,15 +113,24 @@ export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; dro
       })
         .addTo(layerGroup);
       
-      // Add a small marker at tower center for the popup
-      L.circleMarker(center, {
-        radius: 6,
-        color: "#2563eb",
-        fillColor: "#60a5fa",
-        fillOpacity: 0.8,
-        weight: 2,
-      })
-        .bindPopup(`<b>${t.name}</b><br/>Range: ${t.rangeMeters} m`)
+      // Add tower marker with custom icon
+      const towerIcon = L.icon({
+        iconUrl: '/icons/tower.svg',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+        popupAnchor: [0, -16],
+      });
+      L.marker(center, { icon: towerIcon })
+        .bindPopup(`
+          <div>
+            <b>${t.name}</b><br/>
+            Range: ${t.rangeMeters} m<br/>
+            Lat: ${t.latitude.toFixed(6)}<br/>
+            Lon: ${t.longitude.toFixed(6)}<br/>
+            <a href="/dashboard/towers/${t.id}/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>
+            <button onclick="window.deleteTower(${t.id})" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>
+          </div>
+        `)
         .addTo(layerGroup);
       bounds.extend(center);
     });
@@ -128,7 +139,13 @@ export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; dro
     drones.forEach((d) => {
       const pos = L.latLng(d.latitude, d.longitude);
       const waypointOptions = waypoints.map((w) => `<option value="${w.id}">${w.name}</option>`).join('');
-      const marker = L.marker(pos, { draggable: true })
+      const droneIcon = L.icon({
+        iconUrl: '/icons/drone.svg',
+        iconSize: [64, 64],
+        iconAnchor: [32, 64],
+        popupAnchor: [0, -64],
+      });
+      const marker = L.marker(pos, { icon: droneIcon, draggable: true })
         .bindPopup(`
           <div>
             <b>${d.name}</b><br/>
@@ -147,17 +164,31 @@ export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; dro
         `)
         .addTo(layerGroup);
 
+      // Store marker reference by drone ID
+      droneMarkersRef.current.set(d.id, marker);
+
+      // Track last valid position to properly revert on invalid drags
+      let lastValidPos = marker.getLatLng();
+
+      marker.on("dragstart", () => {
+        // Capture position at drag start as the fallback point
+        lastValidPos = marker.getLatLng();
+      });
+
       marker.on("dragend", async () => {
         const newPos = marker.getLatLng();
-        const prevPos = pos;
-        // Client-side range validation against current tower
-        const tower = towers.find((t) => t.id === d.towerId);
-        if (tower) {
-          const dist = haversineMeters(newPos.lat, newPos.lng, tower.latitude, tower.longitude);
-          if (dist > tower.rangeMeters) {
-            marker.setLatLng(prevPos);
-            return;
-          }
+        const prevPos = lastValidPos;
+        // Client-side range validation - check if within ANY active tower range
+        const isWithinAnyTower = towers.some((t) => {
+          if (t.active === false) return false;
+          const dist = haversineMeters(newPos.lat, newPos.lng, t.latitude, t.longitude);
+          return dist <= t.rangeMeters;
+        });
+        
+        if (!isWithinAnyTower) {
+          alert('Drone must be within range of at least one active tower!');
+          marker.setLatLng(prevPos);
+          return;
         }
         try {
           await updateDrone(d.id, {
@@ -167,6 +198,8 @@ export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; dro
             towerId: d.towerId,
             status: d.status ?? "",
           });
+          // Persisted successfully; update our last known good position
+          lastValidPos = newPos;
         } catch (e) {
           // Revert if server rejects (e.g., out of range)
           marker.setLatLng(prevPos);
@@ -176,20 +209,22 @@ export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; dro
       bounds.extend(pos);
     });
 
-    // Render waypoints as green circle markers
+    // Render waypoints with custom icon
     waypoints.forEach((w) => {
       const pos = L.latLng(w.latitude, w.longitude);
-      const waypointIcon = L.divIcon({
-        className: 'waypoint-marker',
-        html: '<div style="background:#10b981;width:20px;height:20px;border-radius:50%;border:2px solid white;"></div>',
-        iconSize: [20, 20],
+      const waypointIcon = L.icon({
+        iconUrl: '/icons/waypoint.svg',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+        popupAnchor: [0, -12],
       });
-      const marker = L.marker(pos, { icon: waypointIcon })
+      const marker = L.marker(pos, { icon: waypointIcon, draggable: false })
         .bindPopup(`
           <div>
             <b>${w.name}</b><br/>
             Lat: ${w.latitude.toFixed(6)}<br/>
             Lon: ${w.longitude.toFixed(6)}<br/>
+            <a href="/dashboard/waypoints/${w.id}/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>
             <button onclick="window.deleteWaypoint(${w.id})" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>
           </div>
         `)
@@ -222,6 +257,123 @@ export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; dro
       }
     };
 
+    // Expose deleteTower to window for popup buttons
+    (window as any).deleteTower = async (id: number) => {
+      if (confirm('Delete this tower?')) {
+        await deleteTower(id);
+      }
+    };
+
+    // Helper: Check if a position is within tower coverage
+    const isWithinTowerCoverage = (lat: number, lng: number): boolean => {
+      return towers.some((t) => {
+        if (t.active === false) return false;
+        const dist = haversineMeters(lat, lng, t.latitude, t.longitude);
+        return dist <= t.rangeMeters;
+      });
+    };
+
+    // Helper: Find shortest path through waypoints using Dijkstra's algorithm
+    const findPath = (startLat: number, startLng: number, targetWaypoint: WaypointDTO): WaypointDTO[] => {
+      // Check if start position is within coverage
+      if (!isWithinTowerCoverage(startLat, startLng)) {
+        console.log('Start position is not within tower coverage');
+        return [];
+      }
+
+      // Check if target is within coverage
+      if (!isWithinTowerCoverage(targetWaypoint.latitude, targetWaypoint.longitude)) {
+        console.log('Target waypoint is not within tower coverage');
+        return [];
+      }
+
+      // Build graph including start point and all waypoints within coverage
+      const allWaypoints = waypoints.filter(w => isWithinTowerCoverage(w.latitude, w.longitude));
+      
+      // Ensure target is in the list if it's within coverage
+      if (!allWaypoints.find(w => w.id === targetWaypoint.id)) {
+        allWaypoints.push(targetWaypoint);
+      }
+      
+      const allPoints = [
+        { id: -1, name: 'start', latitude: startLat, longitude: startLng },
+        ...allWaypoints
+      ];
+
+      // Use Dijkstra's algorithm to find shortest path
+      const distances = new Map<number, number>();
+      const previous = new Map<number, number>();
+      const unvisited = new Set<number>();
+
+      allPoints.forEach(p => {
+        distances.set(p.id, Infinity);
+        unvisited.add(p.id);
+      });
+      distances.set(-1, 0); // Start point
+
+      while (unvisited.size > 0) {
+        // Find unvisited node with smallest distance
+        let current = -1;
+        let minDist = Infinity;
+        unvisited.forEach(id => {
+          const dist = distances.get(id)!;
+          if (dist < minDist) {
+            minDist = dist;
+            current = id;
+          }
+        });
+
+        if (minDist === Infinity) break; // No more reachable nodes
+        if (current === targetWaypoint.id) break; // Found target
+
+        unvisited.delete(current);
+
+        const currentPoint = allPoints.find(p => p.id === current)!;
+
+        // Check all neighbors - can hop to any waypoint within max hop distance
+        // Use the largest tower range as max hop distance to allow reasonable hops
+        const maxTowerRange = Math.max(...towers.map(t => t.rangeMeters));
+        const MAX_HOP_DISTANCE = maxTowerRange * 2; // Allow hops up to 2x the largest tower range
+        
+        allPoints.forEach(neighbor => {
+          if (!unvisited.has(neighbor.id)) return;
+          if (neighbor.id === current) return; // Skip self
+
+          const dist = haversineMeters(currentPoint.latitude, currentPoint.longitude, neighbor.latitude, neighbor.longitude);
+          
+          // Only allow hops within max distance to encourage multi-hop pathfinding
+          if (dist > MAX_HOP_DISTANCE) return;
+          
+          const altDist = distances.get(current)! + dist;
+          
+          if (altDist < distances.get(neighbor.id)!) {
+            distances.set(neighbor.id, altDist);
+            previous.set(neighbor.id, current);
+          }
+        });
+      }
+
+      // Reconstruct path
+      if (!previous.has(targetWaypoint.id)) {
+        console.log('No path found to target waypoint');
+        console.log('Available waypoints in coverage:', allWaypoints.map(w => w.name));
+        console.log('Target:', targetWaypoint.name);
+        console.log('Distances:', Array.from(distances.entries()));
+        return []; // No path found
+      }
+
+      const path: WaypointDTO[] = [];
+      let current = targetWaypoint.id;
+      while (current !== -1) {
+        const point = waypoints.find(w => w.id === current);
+        if (point) path.unshift(point);
+        current = previous.get(current) ?? -1;
+      }
+
+      console.log('Path found:', path.map(w => w.name).join(' → '));
+      return path;
+    };
+
     // Expose moveDroneToWaypoint to window for popup buttons
     (window as any).moveDroneToWaypoint = async (droneId: number) => {
       const selectEl = document.getElementById(`waypoint-select-${droneId}`) as HTMLSelectElement;
@@ -230,59 +382,87 @@ export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; dro
         return;
       }
       const waypointId = parseInt(selectEl.value, 10);
-      const waypoint = waypoints.find((w) => w.id === waypointId);
+      const targetWaypoint = waypoints.find((w) => w.id === waypointId);
       const drone = drones.find((d) => d.id === droneId);
-      if (!waypoint || !drone) return;
+      if (!targetWaypoint || !drone) return;
 
-      // Find the marker for this drone
-      let droneMarker: any = null;
-      layerGroup.eachLayer((layer: any) => {
-        if (layer instanceof L.Marker && layer.getLatLng().lat === drone.latitude && layer.getLatLng().lng === drone.longitude) {
-          droneMarker = layer;
-        }
-      });
-
+      // Get the marker for this drone from our reference map
+      const droneMarker = droneMarkersRef.current.get(droneId);
       if (!droneMarker) return;
+
+      // Validate target waypoint is within range of at least one active tower
+      if (!isWithinTowerCoverage(targetWaypoint.latitude, targetWaypoint.longitude)) {
+        alert(`Target waypoint is out of range of all towers!`);
+        return;
+      }
 
       // Close the popup
       droneMarker.closePopup();
 
-      // Animate the movement
-      const startPos = L.latLng(drone.latitude, drone.longitude);
-      const endPos = L.latLng(waypoint.latitude, waypoint.longitude);
-      const duration = 2000; // 2 seconds
-      const steps = 60;
-      const stepDuration = duration / steps;
+      // Find path through waypoints
+      const currentPos = droneMarker.getLatLng();
+      const path = findPath(currentPos.lat, currentPos.lng, targetWaypoint);
 
-      let currentStep = 0;
-      const animate = () => {
-        currentStep++;
-        const progress = currentStep / steps;
-        
-        // Linear interpolation
-        const lat = startPos.lat + (endPos.lat - startPos.lat) * progress;
-        const lng = startPos.lng + (endPos.lng - startPos.lng) * progress;
-        
-        droneMarker.setLatLng([lat, lng]);
+      if (path.length === 0) {
+        alert('No safe path found to target waypoint!');
+        return;
+      }
 
-        if (currentStep < steps) {
-          setTimeout(animate, stepDuration);
-        } else {
-          // Update database after animation completes
-          updateDrone(droneId, {
-            name: drone.name,
-            latitude: waypoint.latitude,
-            longitude: waypoint.longitude,
-            towerId: drone.towerId,
-            status: drone.status ?? "",
-          }).catch(() => {
-            alert('Failed to move drone. It may be out of tower range.');
-            droneMarker.setLatLng(startPos); // Revert position
-          });
+      // Show path waypoints to user
+      console.log('Path found through waypoints:', path.map(w => w.name).join(' → '));
+      if (path.length > 1) {
+        const pathNames = path.map(w => w.name).join(' → ');
+        if (!confirm(`Drone will travel through: ${pathNames}\n\nProceed?`)) {
+          return;
         }
+      }
+
+      // Animate movement through each waypoint in path
+      let pathIndex = 0;
+      const animateSegment = (fromLat: number, fromLng: number, toWaypoint: WaypointDTO) => {
+        const startPos = L.latLng(fromLat, fromLng);
+        const endPos = L.latLng(toWaypoint.latitude, toWaypoint.longitude);
+        const duration = 2000; // 2 seconds per segment
+        const steps = 60;
+        const stepDuration = duration / steps;
+
+        let currentStep = 0;
+        const animate = () => {
+          currentStep++;
+          const progress = currentStep / steps;
+          
+          const lat = startPos.lat + (endPos.lat - startPos.lat) * progress;
+          const lng = startPos.lng + (endPos.lng - startPos.lng) * progress;
+          
+          droneMarker.setLatLng([lat, lng]);
+
+          if (currentStep < steps) {
+            setTimeout(animate, stepDuration);
+          } else {
+            // Move to next waypoint in path or finish
+            pathIndex++;
+            if (pathIndex < path.length) {
+              animateSegment(endPos.lat, endPos.lng, path[pathIndex]);
+            } else {
+              // Final position reached - update database
+              updateDrone(droneId, {
+                name: drone.name,
+                latitude: toWaypoint.latitude,
+                longitude: toWaypoint.longitude,
+                towerId: drone.towerId,
+                status: drone.status ?? "",
+              }).catch(() => {
+                alert('Failed to update drone position in database.');
+                droneMarker.setLatLng(currentPos);
+              });
+            }
+          }
+        };
+        animate();
       };
 
-      animate();
+      // Start animation from current position to first waypoint
+      animateSegment(currentPos.lat, currentPos.lng, path[0]);
     };
 
     if (!bounds.isValid()) {
@@ -294,25 +474,27 @@ export function MapView({ towers, drones, waypoints }: { towers: TowerDTO[]; dro
 
   if (isLoading) {
     return (
-      <div className="w-full h-[70vh] rounded-md overflow-hidden border flex items-center justify-center bg-gray-50">
+      <div className="w-full h-full rounded-md overflow-hidden border flex items-center justify-center bg-gray-50">
         <p className="text-gray-500">Loading map...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      <button
-        onClick={() => setIsCreatingWaypoint(!isCreatingWaypoint)}
-        className={`px-4 py-2 rounded-md font-medium transition-colors ${
-          isCreatingWaypoint
-            ? 'bg-green-600 text-white hover:bg-green-700'
-            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-        }`}
-      >
-        {isCreatingWaypoint ? '✓ Click map to place waypoint' : '+ Create Waypoint'}
-      </button>
-      <div className="w-full h-[70vh] rounded-md overflow-hidden border" ref={containerRef} />
+    <div className="flex flex-col h-full gap-2">
+      {showWaypointToggle && (
+        <button
+          onClick={() => setIsCreatingWaypoint(!isCreatingWaypoint)}
+          className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            isCreatingWaypoint
+              ? 'bg-green-600 text-white hover:bg-green-700'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
+        >
+          {isCreatingWaypoint ? '✓ Click map to place waypoint' : '+ Create Waypoint'}
+        </button>
+      )}
+      <div className="w-full flex-1 rounded-md overflow-hidden border" ref={containerRef} />
     </div>
   );
 }

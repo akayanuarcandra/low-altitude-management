@@ -22,6 +22,13 @@
       "when": 1765793238215,
       "tag": "0002_cute_longshot",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1765887735692,
+      "tag": "0003_silky_black_tarantula",
+      "breakpoints": true
     }
   ]
 }

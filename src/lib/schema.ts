@@ -26,23 +26,23 @@ export const towers = pgTable("Tower", {
 
 /**
  * Drones Table
- * Represents drones that can move around the map.
- * Each drone is tied to a tower and must stay within its range.
+ * Represents drones in the inventory that can be placed on the map.
+ * Drones can be assigned to towers when placed on the map.
  */
 export const drones = pgTable("Drone", {
     id: serial("id").primaryKey(),
     name: text("name").notNull(),
-    latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(),
-    longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(),
-    towerId: integer("tower_id").notNull(),
-    status: text("status").notNull().default("active"), // "active", "inactive", "charging"
+    latitude: decimal("latitude", { precision: 10, scale: 8 }), // null when in inventory
+    longitude: decimal("longitude", { precision: 11, scale: 8 }), // null when in inventory
+    towerId: integer("tower_id"), // null when in inventory, assigned when placed on map
+    status: text("status").notNull().default("inventory"), // "inventory", "deployed", "inactive"
     createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
-    // Foreign key constraint: a drone must reference an existing tower
+    // Optional foreign key: a drone can reference a tower when deployed
     towerFk: foreignKey({
         columns: [table.towerId],
         foreignColumns: [towers.id],
-    }),
+    }).onDelete("set null"),
 }));
 
 /**

@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db"
 import { tasks, towers, drones, waypoints } from "@/lib/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 export async function createTask(formData: FormData) {
@@ -44,7 +44,7 @@ export async function createTower(formData: FormData) {
   if (!name) return;
   if ([latitude, longitude, rangeMeters].some((n) => Number.isNaN(n))) return;
 
-  await db.insert(towers).values({ name, latitude, longitude, rangeMeters, active });
+  await db.insert(towers).values({ name, latitude: latitude.toString(), longitude: longitude.toString(), rangeMeters, active });
   revalidatePath("/dashboard/towers");
 }
 
@@ -55,7 +55,13 @@ export async function updateTower(id: number, data: {
   rangeMeters?: number;
   active?: boolean;
 }) {
-  await db.update(towers).set(data).where(eq(towers.id, id));
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.latitude !== undefined) updateData.latitude = data.latitude.toString();
+  if (data.longitude !== undefined) updateData.longitude = data.longitude.toString();
+  if (data.rangeMeters !== undefined) updateData.rangeMeters = data.rangeMeters;
+  if (data.active !== undefined) updateData.active = data.active;
+  await db.update(towers).set(updateData).where(eq(towers.id, id));
   revalidatePath("/dashboard/towers");
 }
 
@@ -64,88 +70,53 @@ export async function deleteTower(id: number) {
   revalidatePath("/dashboard/towers");
 }
 
-// Drone CRUD with range validation
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const R = 6371000; // meters
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
+// Drone CRUD
 export async function createDrone(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
-  const latitudeRaw = formData.get("latitude");
-  const longitudeRaw = formData.get("longitude");
-  const towerIdRaw = formData.get("towerId");
-  const status = ((formData.get("status") as string) || "active").trim();
 
   if (!name) {
     console.error("createDrone: name is required");
     return;
   }
 
-  const latitude = Number(latitudeRaw);
-  const longitude = Number(longitudeRaw);
-  const towerId = Number(towerIdRaw);
-
-  if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-    console.error("createDrone: invalid coordinates", { latitude, longitude });
-    return;
-  }
-
-  if (!towerIdRaw || towerIdRaw === "" || Number.isNaN(towerId) || towerId <= 0) {
-    console.error("createDrone: invalid towerId", { towerIdRaw, towerId });
-    return;
-  }
-
-  const [tower] = await db.select().from(towers).where(eq(towers.id, towerId)).limit(1);
-  if (!tower) {
-    console.error("createDrone: tower not found", { towerId });
-    return;
-  }
-
-  // Validate that the drone is initially within tower range
-  const dist = haversineMeters(latitude, longitude, Number(tower.latitude), Number(tower.longitude));
-  if (dist > Number(tower.rangeMeters)) {
-    console.error("createDrone: drone out of range", { dist, range: tower.rangeMeters });
-    return;
-  }
-
-  await db.insert(drones).values({ name, latitude, longitude, towerId, status });
+  // Create drone in inventory (no location, no tower assignment)
+  await db.insert(drones).values({ 
+    name, 
+    status: "inventory"
+  });
   revalidatePath("/dashboard/drones");
 }
 
 export async function updateDrone(id: number, data: {
   name?: string;
-  latitude?: number;
-  longitude?: number;
-  towerId?: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  towerId?: number | null;
   status?: string;
 }) {
-  // If moving or switching tower, enforce range
-  const [current] = await db.select().from(drones).where(eq(drones.id, id)).limit(1);
-  if (!current) return;
-
-  const newLat = data.latitude ?? Number(current.latitude);
-  const newLon = data.longitude ?? Number(current.longitude);
-  const newTowerId = data.towerId ?? Number(current.towerId);
-
-  const [tower] = await db.select().from(towers).where(eq(towers.id, newTowerId)).limit(1);
-  if (!tower) return;
-
-  const dist = haversineMeters(newLat, newLon, Number(tower.latitude), Number(tower.longitude));
-  if (dist > Number(tower.rangeMeters)) return;
-
-  await db.update(drones).set(data).where(eq(drones.id, id));
+  // Build update object, explicitly handling null values using SQL null
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.latitude !== undefined) {
+    updateData.latitude = data.latitude === null ? sql`NULL` : data.latitude.toString();
+  }
+  if (data.longitude !== undefined) {
+    updateData.longitude = data.longitude === null ? sql`NULL` : data.longitude.toString();
+  }
+  if (data.towerId !== undefined) {
+    updateData.towerId = data.towerId === null ? sql`NULL` : data.towerId;
+  }
+  if (data.status !== undefined) updateData.status = data.status;
+  
+  await db.update(drones).set(updateData).where(eq(drones.id, id));
   revalidatePath("/dashboard/drones");
+  revalidatePath("/dashboard/map");
 }
 
 export async function deleteDrone(id: number) {
   await db.delete(drones).where(eq(drones.id, id));
   revalidatePath("/dashboard/drones");
+  revalidatePath("/dashboard/map");
 }
 
 // Waypoint CRUD
@@ -167,11 +138,25 @@ export async function createWaypoint(formData: FormData) {
     return;
   }
 
-  await db.insert(waypoints).values({ name, latitude, longitude });
+  await db.insert(waypoints).values({ name, latitude: latitude.toString(), longitude: longitude.toString() });
   revalidatePath("/dashboard/map");
 }
 
 export async function deleteWaypoint(id: number) {
   await db.delete(waypoints).where(eq(waypoints.id, id));
+  revalidatePath("/dashboard/map");
+}
+
+export async function updateWaypoint(id: number, data: {
+  name?: string;
+  latitude?: number;
+  longitude?: number;
+}) {
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.latitude !== undefined) updateData.latitude = data.latitude.toString();
+  if (data.longitude !== undefined) updateData.longitude = data.longitude.toString();
+  await db.update(waypoints).set(updateData).where(eq(waypoints.id, id));
+  revalidatePath("/dashboard/waypoints");
   revalidatePath("/dashboard/map");
 }

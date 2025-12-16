@@ -1,145 +1,114 @@
 import { db } from "@/lib/db";
-import { tasks } from "@/lib/schema";
-import { desc } from "drizzle-orm";
-import { deleteTask, toggleTask } from "../actions";
-import { Button } from "@/components/ui/button";
+import { drones, towers, waypoints } from "@/lib/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Check } from "lucide-react";
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/auth";
+import { Drone, Radio, MapPin, Map } from "lucide-react";
 
 /**
- * Dashboard Page (Task List Component)
+ * Dashboard Overview Page
  * 
- * This is a Server Component (async function) that:
- * 1. Fetches all tasks from the database using Drizzle ORM
- * 2. Displays them in a list with toggle (complete/incomplete) and delete buttons
- * 3. Shows task details: title, description, and quantity
- * 
- * Why "Server Component"? It runs on the server, fetches data directly,
- * no client JavaScript needed for reading data (only for forms/buttons)
+ * Displays statistics about drones, towers, and waypoints in the system.
  */
 export default async function Dashboard() {
-  // Server-side guard: only allow admin users
-  const session = await getServerSession(authOptions);
-  const isAdmin = (session?.user as any)?.role === "admin";
-  if (!isAdmin) {
-    redirect("/login");
-  }
-  // Fetch all tasks from database, ordered by newest first (desc = descending)
-  const tasksList = await db.select().from(tasks).orderBy(desc(tasks.createdAt));
+  // Fetch counts from database
+  const allDrones = await db.select().from(drones);
+  const allTowers = await db.select().from(towers);
+  const allWaypoints = await db.select().from(waypoints);
+
+  const stats = [
+    {
+      title: "Drones",
+      count: allDrones.length,
+      icon: Drone,
+      description: `${allDrones.filter(d => d.status === "inventory").length} in inventory, ${allDrones.filter(d => d.latitude && d.longitude).length} deployed`,
+      color: "bg-blue-500"
+    },
+    {
+      title: "Towers",
+      count: allTowers.length,
+      icon: Radio,
+      description: `${allTowers.filter(t => (t as any).active !== false).length} active`,
+      color: "bg-purple-500"
+    },
+    {
+      title: "Waypoints",
+      count: allWaypoints.length,
+      icon: MapPin,
+      description: "Navigation points",
+      color: "bg-green-500"
+    }
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8 flex justify-center">
-      <Card className="w-full max-w-md h-fit">
-        <CardHeader>
-          <CardTitle>Altitude Task Manager</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <div className="min-h-screen bg-gray-100 p-8">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* Page Header */}
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-600 mt-1">Overview of your altitude management system</p>
+        </div>
 
-          {/* 
-            Link to Create Page: Button that navigates to the form
-            - Link from "next/link": fast client-side navigation
-            - href="/create-task": goes to the separate create-task page
-          */}
-          <Link href="/create-task">
-            <Button className="w-full mb-4">Create New Task</Button>
-          </Link>
-
-          {/* TASK LIST */}
-          <div className="space-y-2">
-            {/* 
-              tasksList.map(): Loop through all tasks and render each one
-              - (task) => (...): For each task object, return JSX to display it
-              - key={task.id}: Required for React to track list items efficiently
-            */}
-            {tasksList.map((task) => (
-              <div
-                key={task.id}
-                className="flex items-center justify-between py-2 px-4 border rounded-lg bg-white shadow-sm "
-              >
-                <div className="flex items-center gap-4">
-
-                  {/* 
-                    TOGGLE FORM: Click checkbox to mark task complete/incomplete
-                    - action={async () => { "use server"; await toggleTask(...) }}
-                    - This is an inline server action: runs on server when form submits
-                    - task.id: which task to update
-                    - !task.completed: flip the completed boolean (true→false, false→true)
-                  */}
-                  <form action={async () => {
-                    "use server";
-                    await toggleTask(task.id, !task.completed);
-                  }}>
-                    <button type="submit" className="flex items-center pt-1">
-                      {/* 
-                        Checkbox styling: shows black checkmark if task.completed is true
-                        - Conditional CSS: ${task.completed ? "black" : "gray"} applies different colors
-                        - {task.completed && <Check />}: only shows checkmark icon if task is done
-                        - && operator: "render this ONLY IF task.completed is true"
-                      */}
-                      <div className={`
-                        h-4 w-4 rounded border flex items-center justify-center transition-colors
-                        ${task.completed
-                          ? "bg-black border-black text-white"
-                          : "border-gray-400 bg-white"
-                        }
-                      `}>
-                        {task.completed && <Check className="h-3 w-3" />}
-                      </div>
-                    </button>
-                  </form>
-
-                  {/* 
-                    Task Details Display: shows title, description, quantity
-                    - {task.title}: render the task name from database
-                    - className={task.completed ? "line-through" : ""}: add strikethrough style if done
-                    - {task.description && (...)}: conditional render—only show description if it exists
-                    - {task.quantity}: display the quantity number
-                  */}
-                  <div className="flex flex-col">
-                    <div className={task.completed ? "line-through text-gray-400" : ""}>
-                      {task.title}
-                    </div>
-                    <div>
-                      {task.description && (
-                        <span className="text-sm text-gray-500">{task.description}</span>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-500">Qty: {task.quantity}</div>
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {stats.map((stat) => {
+            const Icon = stat.icon;
+            return (
+              <Card key={stat.title}>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">
+                    {stat.title}
+                  </CardTitle>
+                  <div className={`${stat.color} p-2 rounded-lg`}>
+                    <Icon className="h-5 w-5 text-white" />
                   </div>
-                </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold">{stat.count}</div>
+                  <p className="text-xs text-gray-600 mt-2">{stat.description}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
 
-                {/* 
-                  DELETE FORM: Click button to remove task from database
-                  - action={async () => { "use server"; await deleteTask(task.id) }}
-                  - Inline server action that calls deleteTask with the task's id
-                  - After deletion, revalidatePath("/") refreshes the page
-                */}
-                <form action={async () => {
-                  "use server";
-                  await deleteTask(task.id);
-                }}>
-                  <Button variant="destructive" size="sm">
-                    Delete
-                  </Button>
-                </form>
-              </div>
-            ))}
-            {/* 
-              Empty State: Show message if no tasks exist
-              - {tasksList.length === 0 && (...)}: render this ONLY if list is empty
-              - tasksList.length: number of items in the array (0 = empty)
-            */}
-            {tasksList.length === 0 && (
-              <p className="text-center text-gray-500 text-sm">No tasks found.</p>
-            )}
-          </div>
-
-        </CardContent>
-      </Card>
+        {/* Quick Links */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Quick Actions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <a 
+                href="/dashboard/drones/new" 
+                className="p-4 border rounded-lg hover:bg-gray-50 text-center transition"
+              >
+                <Drone className="h-6 w-6 mx-auto mb-2 text-blue-500" />
+                <div className="text-sm font-medium">Add Drone</div>
+              </a>
+              <a 
+                href="/dashboard/towers/new" 
+                className="p-4 border rounded-lg hover:bg-gray-50 text-center transition"
+              >
+                <Radio className="h-6 w-6 mx-auto mb-2 text-purple-500" />
+                <div className="text-sm font-medium">Add Tower</div>
+              </a>
+              <a 
+                href="/dashboard/map" 
+                className="p-4 border rounded-lg hover:bg-gray-50 text-center transition"
+              >
+                <Map className="h-6 w-6 mx-auto mb-2 text-green-500" />
+                <div className="text-sm font-medium">View Map</div>
+              </a>
+              <a 
+                href="/dashboard/waypoints/new" 
+                className="p-4 border rounded-lg hover:bg-gray-50 text-center transition"
+              >
+                <MapPin className="h-6 w-6 mx-auto mb-2 text-green-500" />
+                <div className="text-sm font-medium">Add Waypoint</div>
+              </a>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
