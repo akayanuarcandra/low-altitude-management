@@ -9,7 +9,7 @@ export function setupMapLayers(
     drones: DroneDTO[],
     waypoints: WaypointDTO[],
     deployedDronesRef: React.MutableRefObject<Map<number, { marker: any; circleMarker: any }>>,
-    droneAnimationStateRef: React.MutableRefObject<Map<number, { timeoutId: any }>>
+    autoFitBounds: boolean = false
 ) {
     // Clear all layers except the tile layer
     for (const layer of Object.values(map._layers) as any[]) {
@@ -46,11 +46,13 @@ export function setupMapLayers(
                 .addTo(map);
         });
 
-        // Auto fit to towers
-        const group = new L.featureGroup(
-            towers.map((t) => L.marker([t.latitude, t.longitude]))
-        );
-        map.fitBounds(group.getBounds().pad(0.1));
+        // Auto fit to towers only on initial load
+        if (autoFitBounds) {
+            const group = new L.featureGroup(
+                towers.map((t) => L.marker([t.latitude, t.longitude]))
+            );
+            map.fitBounds(group.getBounds().pad(0.1));
+        }
     }
 
     // Draw deployed drones
@@ -58,11 +60,6 @@ export function setupMapLayers(
         drones.forEach((drone) => {
             if (drone.latitude && drone.longitude) {
                 const existingEntry = deployedDronesRef.current.get(drone.id);
-
-                // If marker exists and is animating, don't recreate it
-                if (existingEntry && droneAnimationStateRef.current.has(drone.id)) {
-                    return;
-                }
 
                 // Remove old marker if it exists
                 if (existingEntry) {
@@ -85,14 +82,15 @@ export function setupMapLayers(
                             Status: ${drone.status || "deployed"}<br/>
                             ${waypoints.length > 0 ? `
                                 <div style="margin-top:8px;">
-                                    <select id="waypoint-select-${drone.id}" style="padding:2px 4px;border:1px solid #ccc;border-radius:4px;">
-                                        <option value="">Select Waypoint</option>
+                                    <label style="font-size:12px;color:#666;">Fly to waypoint:</label><br/>
+                                    <select id="waypoint-select-${drone.id}" style="padding:4px;border:1px solid #ccc;border-radius:4px;width:100%;margin-top:2px;">
+                                        <option value="">Select waypoint...</option>
                                         ${waypointOptions}
                                     </select>
-                                    <button onclick="window.moveDroneToWaypoint(${drone.id})" style="margin-left:4px;padding:2px 8px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;">Move</button>
+                                    <button onclick="window.moveDroneToWaypoint(${drone.id})" style="margin-top:4px;padding:4px 12px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:500;">Fly Drone</button>
                                 </div>
                             ` : ''}
-                            <button onclick="window.returnDroneToInventory(${drone.id})" style="margin-top:4px;padding:2px 8px;background:#f59e0b;color:white;border:none;border-radius:4px;cursor:pointer;width:100%;">Return to Inventory</button>
+                            <button onclick="window.returnDroneToInventory(${drone.id})" style="margin-top:8px;padding:2px 8px;background:#f59e0b;color:white;border:none;border-radius:4px;cursor:pointer;width:100%;">Return to Inventory</button>
                         </div>
                     `)
                     .addTo(map);
