@@ -39,7 +39,8 @@ export function Header() {
   }, [menuOpen]);
 
   return (
-    <header className="sticky top-0 z-10 border-b bg-white/90 backdrop-blur shadow-sm">
+    // <header className="fixed top-0 left-0 right-0 z-99">
+    <header className="fixed top-0 left-0 right-0 z-99 border-b bg-white/90 backdrop-blur shadow-sm">
       <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
           <img src="/icons/title.svg" alt="Altitude" className="h-6" />
@@ -65,7 +66,7 @@ export function Header() {
             <>
               <button
                 type="button"
-                onClick={() => setMenuOpen((v) => !v)}
+                onClick={() => setMenuOpen((v) => !v)} // upon click toggle menu open state
                 className="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
@@ -111,7 +112,7 @@ export function Header() {
 
           {status === "unauthenticated" && (
             <Link href="/login">
-              <Button size="sm" variant="outline">
+              <Button size="sm" variant="default">
                 Login
               </Button>
             </Link>

@@ -59,7 +59,7 @@ export function findPathBFS(
             if (!neighborNode || !neighborNode.inCoverage || visited.has(neighbor)) {
                 continue;
             }
-
+            
             visited.add(neighbor);
             parent.set(neighbor, current);
             queue.push(neighbor);
