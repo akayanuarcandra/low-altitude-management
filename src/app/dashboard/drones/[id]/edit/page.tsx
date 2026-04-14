@@ -15,21 +15,21 @@ import { redirect } from "next/navigation";
  * - Form to edit an existing drone
  * - Validates that drone is within selected tower range
  */
-export default async function EditDronePage({ 
-  params 
-}: { 
-  params: Promise<{ id: string }> 
+export default async function EditDronePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
   const droneId = parseInt(id, 10);
-  
+
   // Fetch the drone to edit
   const [drone] = await db.select().from(drones).where(eq(drones.id, droneId));
-  
+
   if (!drone) {
     redirect("/dashboard/drones");
   }
-  
+
   // Fetch all towers for the dropdown
   const towersList = await db.select().from(towers);
 
@@ -48,20 +48,21 @@ export default async function EditDronePage({
               const longitude = parseFloat(String(formData.get("longitude")));
               const towerId = parseInt(String(formData.get("towerId")), 10);
               const status = String(formData.get("status"));
-              
-              await updateDrone(droneId, { name, latitude, longitude, towerId, status });
+
+              await updateDrone(droneId, {
+                name,
+                latitude,
+                longitude,
+                towerId,
+                status,
+              });
               redirect("/dashboard/drones");
             }}
             className="space-y-4"
           >
             <div>
               <Label htmlFor="name">Name</Label>
-              <Input
-                id="name"
-                name="name"
-                defaultValue={drone.name}
-                required
-              />
+              <Input id="name" name="name" defaultValue={drone.name} required />
             </div>
 
             <div>
@@ -71,7 +72,7 @@ export default async function EditDronePage({
                 name="latitude"
                 type="number"
                 step="0.00000001"
-                defaultValue={Number(drone.latitude)}
+                defaultValue={drone.latitude ?? undefined}
                 required
               />
             </div>
@@ -83,7 +84,7 @@ export default async function EditDronePage({
                 name="longitude"
                 type="number"
                 step="0.00000001"
-                defaultValue={Number(drone.longitude)}
+                defaultValue={drone.longitude ?? undefined}
                 required
               />
             </div>
@@ -93,7 +94,7 @@ export default async function EditDronePage({
               <NativeSelect
                 id="towerId"
                 name="towerId"
-                defaultValue={drone.towerId}
+                defaultValue={drone.towerId ?? undefined}
                 required
               >
                 {towersList.map((t) => (
@@ -117,7 +118,9 @@ export default async function EditDronePage({
             <div className="flex gap-2 pt-4">
               <Button type="submit">Save Changes</Button>
               <Link href="/dashboard/drones">
-                <Button type="button" variant="secondary">Cancel</Button>
+                <Button type="button" variant="secondary">
+                  Cancel
+                </Button>
               </Link>
             </div>
           </form>

@@ -7,9 +7,13 @@ import "leaflet/dist/leaflet.css";
 import { TowerDTO, DroneDTO, WaypointDTO } from "./types";
 import { MapControls } from "./map-controls";
 import { buildGraph, getRoadNetwork } from "@/lib/map-utils/network";
-import { haversineMeters, isWithinTowerCoverage } from "@/lib/map-utils/geometry";
+import {
+  haversineMeters,
+  isWithinTowerCoverage,
+} from "@/lib/map-utils/geometry";
 import { setupMapLayers } from "./map-setup";
 import { findPathBFS, animateDroneAlongPath } from "./drone-flight";
+import { animateDroneMovement } from "./drone-animations";
 
 // Dynamic imports for Leaflet (client-side only)
 let L: any = null;
@@ -42,6 +46,9 @@ export function InteractiveMapView({
   } | null>(null);
   const deployedDronesRef = useRef<
     Map<number, { marker: any; circleMarker: any }>
+  >(new Map());
+  const droneAnimationStateRef = useRef<
+    Map<number, { animating: boolean; cancel: () => void }>
   >(new Map());
   const [graph, setGraph] = useState<{
     nodes: Map<string, { lat: number; lon: number; inCoverage: boolean }>;
@@ -134,6 +141,7 @@ export function InteractiveMapView({
       waypoints,
       deployedDronesRef,
       isInitialRender,
+      droneAnimationStateRef,
     );
 
     let isDragging = false;
@@ -246,13 +254,21 @@ export function InteractiveMapView({
       const droneMarker = deployedDronesRef.current.get(droneId)?.marker;
       if (!droneMarker) return;
 
-      if (!isWithinTowerCoverage(targetWaypoint.latitude, targetWaypoint.longitude, towers)) {
+      if (
+        !isWithinTowerCoverage(
+          targetWaypoint.latitude,
+          targetWaypoint.longitude,
+          towers,
+        )
+      ) {
         window.alert("Target waypoint is outside tower coverage!");
         return;
       }
 
       if (!graph || graph.nodes.size === 0) {
-        window.alert("Road network is not loaded yet. Please wait a moment and try again.");
+        window.alert(
+          "Road network is not loaded yet. Please wait a moment and try again.",
+        );
         return;
       }
 
@@ -268,7 +284,9 @@ export function InteractiveMapView({
       );
 
       if (path.length === 0) {
-        window.alert("No path found! Possible reasons:\n• No continuous road path exists within tower coverage\n• Start or end point too far from any roads (>5km)\n• Towers don't cover the route");
+        window.alert(
+          "No path found! Possible reasons:\n• No continuous road path exists within tower coverage\n• Start or end point too far from any roads (>5km)\n• Towers don't cover the route",
+        );
         return;
       }
 
@@ -281,32 +299,54 @@ export function InteractiveMapView({
       );
 
       if (distanceToFirstPoint > 10) {
-        console.log(`Drone will first move ${distanceToFirstPoint.toFixed(0)}m to nearest road`);
+        console.log(
+          `Drone will first move ${distanceToFirstPoint.toFixed(0)}m to nearest road`,
+        );
       }
 
       droneMarker.closePopup();
 
-      const pathCoords = [currentPos, ...path.map((p) => L.latLng(p.lat, p.lon))];
+      const pathCoords = [
+        currentPos,
+        ...path.map((p) => L.latLng(p.lat, p.lon)),
+      ];
       const polyline = L.polyline(pathCoords, {
         color: "blue",
         weight: 3,
         opacity: 0.7,
       }).addTo(mapRef.current);
 
-      animateDroneAlongPath(droneMarker, path, async () => {
-        await updateDrone(droneId, {
+      // Convert path points to WaypointDTO-like objects expected by animateDroneMovement
+      const pathWaypoints = path.map((p, i) => ({
+        id: i,
+        name: `step-${i}`,
+        latitude: p.lat,
+        longitude: p.lon,
+      }));
+
+      // Animate the drone along the computed path. animateDroneMovement will manage a controller
+      // in droneAnimationStateRef so server-driven updates won't overwrite the marker while animating.
+      await animateDroneMovement(
+        L,
+        droneId,
+        drone,
+        droneMarker,
+        pathWaypoints,
+        {
+          id: targetWaypoint.id,
+          name: targetWaypoint.name,
           latitude: targetWaypoint.latitude,
           longitude: targetWaypoint.longitude,
-        });
+        },
+        { lat: currentPos.lat, lng: currentPos.lng },
+        droneAnimationStateRef,
+        setAlert,
+      );
 
+      // Remove the visual path polyline when animation completes (animateDroneMovement handles persisting)
+      if (mapRef.current && polyline) {
         mapRef.current.removeLayer(polyline);
-
-        setAlert({
-          type: "success",
-          message: `${drone.name} reached ${targetWaypoint.name}!`,
-        });
-        setTimeout(() => setAlert(null), 3000);
-      });
+      }
     };
 
     (window as any).returnDroneToInventory = async (droneId: number) => {

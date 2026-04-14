@@ -15,13 +15,16 @@ const navLinks = [
 
 /**
  * Header Component (client component)
- * 
+ *
  * Displays the app logo, navigation links, and admin session info.
  * If logged in as admin, shows a logout button.
  */
 export function Header() {
   const { data: session, status } = useSession();
-  const isAdmin = session?.user?.role === "admin";
+  // Guard access to optional `role` property — `session.user` from NextAuth may not include `role`
+  // and TypeScript's user type might not declare it. Cast to `any` for the narrow access here
+  // to avoid TS errors while keeping the runtime check safe.
+  const isAdmin = (session?.user as any)?.role === "admin";
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -40,9 +43,12 @@ export function Header() {
 
   return (
     // <header className="fixed top-0 left-0 right-0 z-99">
-    <header className="fixed top-0 left-0 right-0 z-99 border-b bg-white/90 backdrop-blur shadow-sm">
+    <header className="sticky top-0 left-0 right-0 z-99 border-b bg-white/90 backdrop-blur shadow-sm">
       <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4">
-        <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
+        <Link
+          href="/"
+          className="flex items-center gap-2 font-semibold tracking-tight"
+        >
           <img src="/icons/title.svg" alt="Altitude" className="h-6" />
         </Link>
 
@@ -52,7 +58,7 @@ export function Header() {
               key={link.href}
               href={link.href}
               className={cn(
-                "rounded px-3 py-1 transition hover:bg-gray-100 hover:text-gray-900"
+                "rounded px-3 py-1 transition hover:bg-gray-100 hover:text-gray-900",
               )}
             >
               {link.label}
@@ -80,7 +86,11 @@ export function Header() {
                   fill="currentColor"
                   className="h-4 w-4 text-gray-500"
                 >
-                  <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.187l3.71-3.957a.75.75 0 111.08 1.04l-4.24 4.52a.75.75 0 01-1.08 0l-4.24-4.52a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                  <path
+                    fillRule="evenodd"
+                    d="M5.23 7.21a.75.75 0 011.06.02L10 11.187l3.71-3.957a.75.75 0 111.08 1.04l-4.24 4.52a.75.75 0 01-1.08 0l-4.24-4.52a.75.75 0 01.02-1.06z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </button>
 

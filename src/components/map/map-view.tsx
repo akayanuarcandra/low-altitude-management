@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { updateDrone, createWaypoint, deleteWaypoint, deleteTower } from "@/app/actions";
+import {
+  updateDrone,
+  createWaypoint,
+  deleteWaypoint,
+  deleteTower,
+} from "@/app/actions";
 
 // Dynamic imports for Leaflet (client-side only)
 let L: any = null;
@@ -12,8 +17,9 @@ let markerShadow: any = null;
 export type TowerDTO = {
   id: number;
   name: string;
-  latitude: number;
-  longitude: number;
+  // latitude/longitude may be null for items that exist in the DB but have no location yet
+  latitude: number | null;
+  longitude: number | null;
   rangeMeters: number;
   active?: boolean | null;
 };
@@ -34,12 +40,19 @@ export type WaypointDTO = {
   longitude: number;
 };
 
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+function haversineMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+) {
   const toRad = (d: number) => (d * Math.PI) / 180;
   const R = 6371000; // meters
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
@@ -58,7 +71,9 @@ export function MapView({
   const mapRef = useRef<any>(null);
   const layerGroupRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const droneMarkersRef = useRef<any>(globalThis.Map ? new globalThis.Map() : {});
+  const droneMarkersRef = useRef<any>(
+    globalThis.Map ? new globalThis.Map() : {},
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingWaypoint, setIsCreatingWaypoint] = useState(false);
 
@@ -66,9 +81,12 @@ export function MapView({
     const loadLeaflet = async () => {
       if (!L) {
         L = (await import("leaflet")).default;
-        markerIcon2x = (await import("leaflet/dist/images/marker-icon-2x.png")).default;
-        markerIcon = (await import("leaflet/dist/images/marker-icon.png")).default;
-        markerShadow = (await import("leaflet/dist/images/marker-shadow.png")).default;
+        markerIcon2x = (await import("leaflet/dist/images/marker-icon-2x.png"))
+          .default;
+        markerIcon = (await import("leaflet/dist/images/marker-icon.png"))
+          .default;
+        markerShadow = (await import("leaflet/dist/images/marker-shadow.png"))
+          .default;
 
         (L.Icon.Default as any).mergeOptions({
           iconRetinaUrl: markerIcon2x.src ?? markerIcon2x,
@@ -107,6 +125,9 @@ export function MapView({
     const bounds = L.latLngBounds([]);
 
     towers.forEach((t) => {
+      // Skip towers without coordinates (nullable latitude/longitude)
+      if (t.latitude === null || t.longitude === null) return;
+
       const center = L.latLng(t.latitude, t.longitude);
       L.circle(center, {
         radius: t.rangeMeters,
@@ -132,7 +153,7 @@ export function MapView({
             Lon: ${t.longitude.toFixed(6)}<br/>
             <a href="/dashboard/towers/${t.id}/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>
             <button onclick="window.deleteTower(${t.id})" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>
-          </div>`
+          </div>`,
         )
         .addTo(layerGroup);
       bounds.extend(center);
@@ -152,7 +173,7 @@ export function MapView({
             <b>${d.name}</b><br/>
             Status: ${d.status ?? "-"}<br/>
             Tower: ${d.towerId}<br/>
-          </div>`
+          </div>`,
         )
         .addTo(layerGroup);
 
@@ -169,7 +190,14 @@ export function MapView({
         const prevPos = lastValidPos;
         const isWithinAnyTower = towers.some((t) => {
           if (t.active === false) return false;
-          const dist = haversineMeters(newPos.lat, newPos.lng, t.latitude, t.longitude);
+          // Skip towers without coordinates
+          if (t.latitude === null || t.longitude === null) return false;
+          const dist = haversineMeters(
+            newPos.lat,
+            newPos.lng,
+            t.latitude,
+            t.longitude,
+          );
           return dist <= t.rangeMeters;
         });
 
@@ -210,7 +238,7 @@ export function MapView({
             Lon: ${w.longitude.toFixed(6)}<br/>
             <a href="/dashboard/waypoints/${w.id}/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>
             <button onclick="window.deleteWaypoint(${w.id})" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>
-          </div>`
+          </div>`,
         )
         .addTo(layerGroup);
       bounds.extend(pos);
@@ -250,6 +278,8 @@ export function MapView({
     const isWithinTowerCoverage = (lat: number, lng: number): boolean => {
       return towers.some((t) => {
         if (t.active === false) return false;
+        // If a tower doesn't have coordinates, it can't provide coverage
+        if (t.latitude === null || t.longitude === null) return false;
         const dist = haversineMeters(lat, lng, t.latitude, t.longitude);
         return dist <= t.rangeMeters;
       });
@@ -281,10 +311,15 @@ export function MapView({
               : "bg-gray-200 text-gray-700 hover:bg-gray-300"
           }`}
         >
-          {isCreatingWaypoint ? "✓ Click map to place waypoint" : "+ Create Waypoint"}
+          {isCreatingWaypoint
+            ? "✓ Click map to place waypoint"
+            : "+ Create Waypoint"}
         </button>
       )}
-      <div className="w-full flex-1 rounded-md overflow-hidden border" ref={containerRef} />
+      <div
+        className="w-full flex-1 rounded-md overflow-hidden border"
+        ref={containerRef}
+      />
     </div>
   );
 }

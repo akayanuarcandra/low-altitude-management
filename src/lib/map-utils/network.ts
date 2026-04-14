@@ -1,15 +1,20 @@
 import { TowerDTO } from "@/components/map/types";
-import { isWithinTowerCoverage, haversineMeters } from "./geometry";
+import { isWithinTowerCoverage } from "./geometry";
 
 const MAX_BOUNDS_SPAN_DEG = 0.2;
-const REQUEST_TIMEOUT_MS = 12000;
+const REQUEST_TIMEOUT_MS = 25000;
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
   "https://overpass.openstreetmap.ru/api/interpreter",
 ];
 
-function clampBounds(bounds: any) {
+function clampBounds(bounds: {
+  getSouth: () => number;
+  getWest: () => number;
+  getNorth: () => number;
+  getEast: () => number;
+}) {
   const south = bounds.getSouth();
   const west = bounds.getWest();
   const north = bounds.getNorth();
@@ -55,8 +60,14 @@ async function fetchWithTimeout(url: string, body: string) {
 /**
  * Fetches road network data from the Overpass API for a given map bounds.
  */
-export async function getRoadNetwork(bounds: any) {
+export async function getRoadNetwork(bounds: {
+  getSouth: () => number;
+  getWest: () => number;
+  getNorth: () => number;
+  getEast: () => number;
+}) {
   const clamped = clampBounds(bounds);
+
   // Query for ways (roads) within the bounding box
   const query = `
     [out:json][timeout:25];
@@ -70,29 +81,106 @@ export async function getRoadNetwork(bounds: any) {
     );
     out geom;
   `;
+  const body = "data=" + encodeURIComponent(query);
 
+  // Simple sessionStorage-backed cache to reduce repeated Overpass calls
+  const CACHE_TTL = 1000 * 60 * 10; // 10 minutes
+  type CacheEntry = { ts: number; data: unknown };
+  function cacheKeyForBounds(c: {
+    south: number;
+    west: number;
+    north: number;
+    east: number;
+  }) {
+    return `overpass_${c.south.toFixed(4)}_${c.west.toFixed(4)}_${c.north.toFixed(4)}_${c.east.toFixed(4)}`;
+  }
+
+  // Try cached result first
   try {
-    const body = "data=" + encodeURIComponent(query);
-    for (const endpoint of OVERPASS_ENDPOINTS) {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          const response = await fetchWithTimeout(endpoint, body);
-          if (!response.ok) {
-            console.error("Overpass API request failed:", response.statusText);
-            await new Promise((resolve) => setTimeout(resolve, 600 + attempt * 700));
-            continue;
-          }
-          return await response.json();
-        } catch (error) {
-          await new Promise((resolve) => setTimeout(resolve, 600 + attempt * 700));
+    const key = cacheKeyForBounds(clamped);
+    if (typeof sessionStorage !== "undefined") {
+      const raw = sessionStorage.getItem(key);
+      if (raw) {
+        const entry: CacheEntry = JSON.parse(raw);
+        if (Date.now() - entry.ts < CACHE_TTL) {
+          console.log("Using cached Overpass data for", key);
+          return entry.data;
+        } else {
+          sessionStorage.removeItem(key);
         }
       }
     }
-    return null;
-  } catch (error) {
-    console.error("Error fetching road network:", error);
-    return null;
+  } catch (err: unknown) {
+    // sessionStorage may throw in some environments (SSR / blocked), ignore cache if it does
+    const errMsg =
+      typeof err === "object" && err !== null && "message" in err
+        ? String((err as { message?: unknown }).message)
+        : String(err);
+    console.warn("Overpass cache read error", errMsg);
   }
+
+  // Try endpoints with retries and backoff, rotate through endpoints
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        console.log(
+          `Overpass: fetching from ${endpoint} (attempt ${attempt + 1})`,
+        );
+        const response = await fetchWithTimeout(endpoint, body);
+        if (!response.ok) {
+          console.warn(
+            `Overpass API ${endpoint} returned ${response.status} ${response.statusText}`,
+          );
+          // For server errors, 429 or 504, backoff and retry this endpoint
+          if (
+            response.status === 504 ||
+            response.status === 429 ||
+            response.status >= 500
+          ) {
+            await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+            continue;
+          } else {
+            // Unrecoverable client error for this endpoint/query; break attempts and try next endpoint
+            break;
+          }
+        }
+
+        const json: unknown = await response.json();
+
+        // Cache the successful result
+        try {
+          const key = cacheKeyForBounds(clamped);
+          const entry: CacheEntry = { ts: Date.now(), data: json };
+          if (typeof sessionStorage !== "undefined") {
+            sessionStorage.setItem(key, JSON.stringify(entry));
+          }
+        } catch {
+          // ignore cache write errors
+        }
+
+        return json;
+      } catch (err: unknown) {
+        // Network error or timeout (AbortError)
+        let errName = String(err);
+        if (typeof err === "object" && err !== null && "name" in err) {
+          errName = String((err as { name?: unknown }).name ?? errName);
+        }
+        console.warn(
+          `Overpass fetch error from ${endpoint} (attempt ${attempt + 1}):`,
+          errName,
+        );
+        // small exponential-ish backoff and retry
+        await new Promise((resolve) =>
+          setTimeout(resolve, 600 + attempt * 700),
+        );
+        // continue to next attempt for the same endpoint
+      }
+    }
+    // move to next endpoint after attempts exhausted for this one
+  }
+
+  console.error("Overpass API: all endpoints failed or timed out");
+  return null;
 }
 
 /**
@@ -100,11 +188,21 @@ export async function getRoadNetwork(bounds: any) {
  * Adds nodes with inCoverage flag and creates edges for roads.
  * An edge is added if at least one endpoint is in coverage.
  */
-export function buildGraph(osmData: any, towers: TowerDTO[]) {
-  const nodes = new Map<string, { lat: number; lon: number; inCoverage: boolean }>();
+export function buildGraph(
+  osmData: unknown,
+  towers: TowerDTO[],
+): {
+  nodes: Map<string, { lat: number; lon: number; inCoverage: boolean }>;
+  adj: Map<string, Set<string>>;
+} {
+  const nodes = new Map<
+    string,
+    { lat: number; lon: number; inCoverage: boolean }
+  >();
   const adj = new Map<string, Set<string>>();
 
-  if (!osmData || !osmData.elements) {
+  const elements = (osmData as { elements?: unknown[] })?.elements ?? [];
+  if (elements.length === 0) {
     console.error("BuildGraph: OSM data is invalid or empty.");
     return { nodes, adj };
   }
@@ -139,23 +237,36 @@ export function buildGraph(osmData: any, towers: TowerDTO[]) {
   // Process each way (road)
   let segmentsInCoverage = 0;
 
-  for (const element of osmData.elements) {
-    if (element.type === "way" && element.geometry && Array.isArray(element.geometry)) {
-      for (let i = 0; i < element.geometry.length - 1; i++) {
-        const u = element.geometry[i];
-        const v = element.geometry[i + 1];
+  for (const element of elements) {
+    const type = (element as { type?: string }).type;
+    const geometry = (element as { geometry?: unknown }).geometry;
+    if (type === "way" && Array.isArray(geometry)) {
+      const geom = geometry as Array<Record<string, unknown>>;
+      for (let i = 0; i < geom.length - 1; i++) {
+        const u = geom[i];
+        const v = geom[i + 1];
 
-        if (u && v && u.lat && u.lon && v.lat && v.lon) {
-          const midLat = (u.lat + v.lat) / 2;
-          const midLon = (u.lon + v.lon) / 2;
-          const segmentInCoverage = isWithinTowerCoverage(midLat, midLon, towers);
+        const uLat = u.lat;
+        const uLon = u.lon;
+        const vLat = v.lat;
+        const vLon = v.lon;
 
-          // Add nodes, marking inCoverage if segment midpoint is covered
-          const uKey = addNode(u.lat, u.lon, segmentInCoverage);
-          const vKey = addNode(v.lat, v.lon, segmentInCoverage);
+        if (
+          typeof uLat === "number" &&
+          typeof uLon === "number" &&
+          typeof vLat === "number" &&
+          typeof vLon === "number"
+        ) {
+          // Determine coverage more strictly: require both endpoints to be within tower coverage.
+          const uInCoverage = isWithinTowerCoverage(uLat, uLon, towers);
+          const vInCoverage = isWithinTowerCoverage(vLat, vLon, towers);
 
-          // Connect nodes if the segment midpoint is within coverage
-          if (segmentInCoverage) {
+          // Mark nodes as inCoverage based on their actual endpoint coverage
+          const uKey = addNode(uLat, uLon, uInCoverage);
+          const vKey = addNode(vLat, vLon, vInCoverage);
+
+          // Only connect nodes (add the road segment) if both endpoints are within coverage.
+          if (uInCoverage && vInCoverage) {
             segmentsInCoverage++;
             addEdge(uKey, vKey);
           }
@@ -164,8 +275,12 @@ export function buildGraph(osmData: any, towers: TowerDTO[]) {
     }
   }
 
-  const nodesInCoverage = Array.from(nodes.values()).filter(n => n.inCoverage).length;
-  console.log(`Road network: ${nodesInCoverage} nodes in coverage, ${segmentsInCoverage} road segments`);
+  const nodesInCoverage = Array.from(nodes.values()).filter(
+    (n) => n.inCoverage,
+  ).length;
+  console.log(
+    `Road network: ${nodesInCoverage} nodes in coverage, ${segmentsInCoverage} road segments`,
+  );
 
   return { nodes, adj };
 }

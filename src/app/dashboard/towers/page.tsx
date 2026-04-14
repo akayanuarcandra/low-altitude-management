@@ -6,23 +6,23 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { MapView } from "@/components/map/map-view";
 import { DeleteTowerButton } from "./delete-tower-button";
+import type { InferModel } from "drizzle-orm";
 
-/**
- * Towers Management Page
- * - Map view showing towers with delete buttons
- * - List view with tower details
- * - Link to create a new tower
- */
+type Tower = InferModel<typeof towers>;
+
 export default async function TowersPage() {
-  const items = await db.select().from(towers).orderBy(desc(towers.createdAt));
+  const items: Tower[] = await db
+    .select()
+    .from(towers)
+    .orderBy(desc(towers.createdAt));
 
   const towersDTO = items.map((t) => ({
     id: t.id,
     name: t.name,
-    latitude: Number(t.latitude),
-    longitude: Number(t.longitude),
+    latitude: t.latitude === null ? null : Number(t.latitude),
+    longitude: t.longitude === null ? null : Number(t.longitude),
     rangeMeters: Number(t.rangeMeters),
-    active: (t as any).active ?? true,
+    active: typeof t.active === "boolean" ? t.active : true, //runtime check for safety
   }));
 
   return (
@@ -39,7 +39,12 @@ export default async function TowersPage() {
               <Card>
                 <CardContent className="">
                   <div className="h-170 rounded-md overflow-hidden border">
-                    <MapView towers={towersDTO} drones={[]} waypoints={[]} showWaypointToggle={false} />
+                    <MapView
+                      towers={towersDTO}
+                      drones={[]}
+                      waypoints={[]}
+                      showWaypointToggle={false}
+                    />
                   </div>
                 </CardContent>
               </Card>
@@ -58,20 +63,32 @@ export default async function TowersPage() {
               <CardContent className="space-y-6">
                 <div className="space-y-2">
                   {items.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between p-2 border rounded bg-white">
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between p-2 border rounded bg-white"
+                    >
                       <div className="text-sm">
-                        <div className="font-semibold">{t.name} {t.active ? "(active)" : "(inactive)"}</div>
-                        <div className="text-gray-600">Lat: {String(t.latitude)} <br /> Lon: {String(t.longitude)} <br /> Range: {t.rangeMeters} m</div>
+                        <div className="font-semibold">
+                          {t.name} {t.active ? "(active)" : "(inactive)"}
+                        </div>
+                        <div className="text-gray-600">
+                          Lat: {String(t.latitude)} <br /> Lon:{" "}
+                          {String(t.longitude)} <br /> Range: {t.rangeMeters} m
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Link href={`/dashboard/towers/${t.id}/edit`}>
-                          <Button variant="outline" size="sm">Edit</Button>
+                          <Button variant="outline" size="sm">
+                            Edit
+                          </Button>
                         </Link>
                         <DeleteTowerButton towerId={t.id} towerName={t.name} />
                       </div>
                     </div>
                   ))}
-                  {items.length === 0 && <p className="text-gray-500 text-sm">No towers yet.</p>}
+                  {items.length === 0 && (
+                    <p className="text-gray-500 text-sm">No towers yet.</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
