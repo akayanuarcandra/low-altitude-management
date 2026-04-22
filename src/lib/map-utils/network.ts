@@ -1,5 +1,5 @@
 import { TowerDTO } from "@/components/map/types";
-import { isWithinTowerCoverage } from "./geometry";
+import { isWithinTowerCoverage, haversineMeters } from "./geometry";
 
 const MAX_BOUNDS_SPAN_DEG = 0.2;
 const REQUEST_TIMEOUT_MS = 25000;
@@ -193,13 +193,13 @@ export function buildGraph(
   towers: TowerDTO[],
 ): {
   nodes: Map<string, { lat: number; lon: number; inCoverage: boolean }>;
-  adj: Map<string, Set<string>>;
+  adj: Map<string, Array<{ to: string; weight: number }>>;
 } {
   const nodes = new Map<
     string,
     { lat: number; lon: number; inCoverage: boolean }
   >();
-  const adj = new Map<string, Set<string>>();
+  const adj = new Map<string, Array<{ to: string; weight: number }>>();
 
   const elements = (osmData as { elements?: unknown[] })?.elements ?? [];
   if (elements.length === 0) {
@@ -217,7 +217,7 @@ export function buildGraph(
     const key = getNodeKey(lat, lon);
     if (!nodes.has(key)) {
       nodes.set(key, { lat, lon, inCoverage });
-      adj.set(key, new Set<string>());
+      adj.set(key, []); // initialize empty weighted adjacency list
     } else if (inCoverage) {
       const existing = nodes.get(key);
       if (existing && !existing.inCoverage) {
@@ -228,10 +228,16 @@ export function buildGraph(
   };
 
   const addEdge = (uKey: string, vKey: string) => {
-    if (uKey !== vKey) {
-      adj.get(uKey)?.add(vKey);
-      adj.get(vKey)?.add(uKey);
-    }
+    if (uKey === vKey) return;
+    const uNode = nodes.get(uKey);
+    const vNode = nodes.get(vKey);
+    if (!uNode || !vNode) return;
+    // weight is the haversine distance between endpoints (meters)
+    const weight = haversineMeters(uNode.lat, uNode.lon, vNode.lat, vNode.lon);
+    const a = adj.get(uKey);
+    if (a) a.push({ to: vKey, weight });
+    const b = adj.get(vKey);
+    if (b) b.push({ to: uKey, weight });
   };
 
   // Process each way (road)

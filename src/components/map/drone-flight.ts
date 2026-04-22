@@ -8,101 +8,256 @@ const STEP_DURATION = 50; // 50ms per animation step
  * Only considers roads within tower coverage
  * Returns the full path including start position -> nearest road -> path -> target nearest road
  */
-export function findPathBFS(
-    startLat: number,
-    startLng: number,
-    targetLat: number,
-    targetLng: number,
-    nodes: Map<string, { lat: number; lon: number; inCoverage: boolean }>,
-    adj: Map<string, Set<string>>
+/* findPathBFS removed — use findPathBidirectionalDijkstra for weighted shortest paths by distance */
+
+/**
+ * Bidirectional Dijkstra pathfinding (weighted shortest path by distance).
+ * Returns full path including potential move-to-road and final move off-road, similar to BFS behavior.
+ */
+export function findPathBidirectionalDijkstra(
+  startLat: number,
+  startLng: number,
+  targetLat: number,
+  targetLng: number,
+  nodes: Map<string, { lat: number; lon: number; inCoverage: boolean }>,
+  adj: Map<string, Array<{ to: string; weight: number }>>,
 ): { lat: number; lon: number }[] {
-    // Find nearest nodes to start and target positions
-    const startResult = findNearestNodeInCoverage(startLat, startLng, nodes);
-    const endResult = findNearestNodeInCoverage(targetLat, targetLng, nodes);
+  // Snap start & end to nearest in-coverage nodes
+  const startResult = findNearestNodeInCoverage(startLat, startLng, nodes);
+  const endResult = findNearestNodeInCoverage(targetLat, targetLng, nodes);
 
-    if (!startResult) {
-        console.log('Could not find start node in coverage');
-        return [];
+  if (!startResult) {
+    console.log("Dijkstra: Could not find start node in coverage");
+    return [];
+  }
+  if (!endResult) {
+    console.log("Dijkstra: Could not find end node in coverage");
+    return [];
+  }
+
+  const startKey = startResult.nodeKey;
+  const endKey = endResult.nodeKey;
+
+  if (startKey === endKey) {
+    // Same node - just go direct (including start/end offset if needed)
+    const node = nodes.get(startKey)!;
+    const path = [{ lat: node.lat, lon: node.lon }];
+    if (endResult.distance > 10) path.push({ lat: targetLat, lon: targetLng });
+    if (startResult.distance > 10)
+      path.unshift({ lat: startLat, lon: startLng });
+    return path;
+  }
+
+  // Min-heap priority queue
+  class MinHeap {
+    heap: Array<{ key: string; dist: number }>;
+    index: Map<string, number>;
+    constructor() {
+      this.heap = [];
+      this.index = new Map();
     }
-    
-    if (!endResult) {
-        console.log('Could not find end node in coverage');
-        return [];
+    size() {
+      return this.heap.length;
     }
+    peekDist(): number {
+      return this.heap.length > 0 ? this.heap[0].dist : Infinity;
+    }
+    push(key: string, dist: number) {
+      const node = { key, dist };
+      this.heap.push(node);
+      this.index.set(key, this.heap.length - 1);
+      this._siftUp(this.heap.length - 1);
+    }
+    pop() {
+      if (this.heap.length === 0) return null;
+      const top = this.heap[0];
+      const last = this.heap.pop()!;
+      this.index.delete(top.key);
+      if (this.heap.length > 0) {
+        this.heap[0] = last;
+        this.index.set(last.key, 0);
+        this._siftDown(0);
+      }
+      return top;
+    }
+    decrease(key: string, dist: number) {
+      const idx = this.index.get(key);
+      if (idx === undefined) {
+        this.push(key, dist);
+        return;
+      }
+      if (dist < this.heap[idx].dist) {
+        this.heap[idx].dist = dist;
+        this._siftUp(idx);
+      }
+    }
+    _siftUp(i: number) {
+      while (i > 0) {
+        const p = Math.floor((i - 1) / 2);
+        if (this.heap[p].dist <= this.heap[i].dist) break;
+        this._swap(i, p);
+        i = p;
+      }
+    }
+    _siftDown(i: number) {
+      const n = this.heap.length;
+      while (true) {
+        let smallest = i;
+        const l = 2 * i + 1;
+        const r = 2 * i + 2;
+        if (l < n && this.heap[l].dist < this.heap[smallest].dist) smallest = l;
+        if (r < n && this.heap[r].dist < this.heap[smallest].dist) smallest = r;
+        if (smallest === i) break;
+        this._swap(i, smallest);
+        i = smallest;
+      }
+    }
+    _swap(a: number, b: number) {
+      const A = this.heap[a];
+      const B = this.heap[b];
+      this.heap[a] = B;
+      this.heap[b] = A;
+      this.index.set(A.key, b);
+      this.index.set(B.key, a);
+    }
+  }
 
-    console.log(`BFS: Moving to nearest road (${startResult.distance.toFixed(0)}m away)`);
-    console.log(`BFS: Target is ${endResult.distance.toFixed(0)}m from nearest road`);
+  // edge weights are provided by the weighted adjacency list (adj) returned from buildGraph
+  // (no on-the-fly haversine computation here)
 
-    const startNode = startResult.nodeKey;
-    const endNode = endResult.nodeKey;
+  // Data structures
+  const distF = new Map<string, number>();
+  const distB = new Map<string, number>();
+  const prevF = new Map<string, string | null>();
+  const prevB = new Map<string, string | null>();
+  const visitedF = new Set<string>();
+  const visitedB = new Set<string>();
 
-    // BFS to find path
-    const queue: string[] = [startNode];
-    const visited = new Set<string>([startNode]);
-    const parent = new Map<string, string>();
-    let found = false;
+  const pqF = new MinHeap();
+  const pqB = new MinHeap();
 
-    while (queue.length > 0 && !found) {
-        const current = queue.shift()!;
-        
-        if (current === endNode) {
-            found = true;
-            break;
+  distF.set(startKey, 0);
+  prevF.set(startKey, null);
+  pqF.push(startKey, 0);
+
+  distB.set(endKey, 0);
+  prevB.set(endKey, null);
+  pqB.push(endKey, 0);
+
+  let bestMeet: string | null = null;
+  let bestDist = Infinity;
+
+  // Main loop: expand alternately or the smaller frontier
+  while (pqF.size() > 0 && pqB.size() > 0) {
+    // Expand forward frontier
+    const topF = pqF.pop();
+    if (topF) {
+      const u = topF.key;
+      const du = topF.dist;
+      if (du <= (distF.get(u) ?? Infinity)) {
+        visitedF.add(u);
+        if (visitedB.has(u)) {
+          const total = (distF.get(u) ?? Infinity) + (distB.get(u) ?? Infinity);
+          if (total < bestDist) {
+            bestDist = total;
+            bestMeet = u;
+          }
         }
-
-        const neighbors = adj.get(current);
-        if (!neighbors) continue;
-
-        for (const neighbor of neighbors) {
-            const neighborNode = nodes.get(neighbor);
-            // Only traverse nodes that are in coverage and not visited
-            if (!neighborNode || !neighborNode.inCoverage || visited.has(neighbor)) {
-                continue;
+        const neighbors = adj.get(u);
+        if (neighbors) {
+          for (const nb of neighbors) {
+            const v = nb.to;
+            const w = nb.weight;
+            if (!nodes.has(v)) continue;
+            if (!nodes.get(v)!.inCoverage) continue;
+            const alt = du + w;
+            if (alt < (distF.get(v) ?? Infinity)) {
+              distF.set(v, alt);
+              prevF.set(v, u);
+              pqF.decrease(v, alt);
             }
-            
-            visited.add(neighbor);
-            parent.set(neighbor, current);
-            queue.push(neighbor);
+          }
         }
+      }
     }
 
-    if (!found) {
-        console.log(`BFS: No path found (visited ${visited.size} nodes)`);
-        return [];
-    }
-
-    // Reconstruct path
-    const roadPath: { lat: number; lon: number }[] = [];
-    let current: string | undefined = endNode;
-    
-    while (current) {
-        const node = nodes.get(current);
-        if (node) {
-            roadPath.unshift({ lat: node.lat, lon: node.lon });
+    // Expand backward frontier
+    const topB = pqB.pop();
+    if (topB) {
+      const u = topB.key;
+      const du = topB.dist;
+      if (du <= (distB.get(u) ?? Infinity)) {
+        visitedB.add(u);
+        if (visitedF.has(u)) {
+          const total = (distF.get(u) ?? Infinity) + (distB.get(u) ?? Infinity);
+          if (total < bestDist) {
+            bestDist = total;
+            bestMeet = u;
+          }
         }
-        current = parent.get(current);
+        const neighbors = adj.get(u);
+        if (neighbors) {
+          for (const nb of neighbors) {
+            const v = nb.to;
+            const w = nb.weight;
+            if (!nodes.has(v)) continue;
+            if (!nodes.get(v)!.inCoverage) continue;
+            const alt = du + w;
+            if (alt < (distB.get(v) ?? Infinity)) {
+              distB.set(v, alt);
+              prevB.set(v, u);
+              pqB.decrease(v, alt);
+            }
+          }
+        }
+      }
     }
 
-    console.log(`BFS: Path found with ${roadPath.length} road waypoints`);
-    
-    // Build full path: current position -> nearest road -> road path -> target waypoint
-    const fullPath: { lat: number; lon: number }[] = [];
-    
-    // Add move to nearest road if drone is not already on it
-    if (startResult.distance > 10) { // More than 10m away
-        fullPath.push(startResult.node);
-    }
-    
-    // Add the road path
-    fullPath.push(...roadPath);
-    
-    // Add final move from nearest road to actual waypoint position
-    if (endResult.distance > 10) { // More than 10m away from road
-        fullPath.push({ lat: targetLat, lon: targetLng });
-        console.log(`BFS: Will move final ${endResult.distance.toFixed(0)}m from road to waypoint`);
-    }
-    
-    return fullPath;
+    // Termination condition: lower bounds can't beat bestDist
+    const minF = pqF.peekDist();
+    const minB = pqB.peekDist();
+    if (minF + minB >= bestDist) break;
+  }
+
+  if (bestMeet === null) {
+    console.log("Dijkstra: no meeting point found");
+    return [];
+  }
+
+  // Reconstruct path: start -> ... -> meet
+  const pathF: string[] = [];
+  let cur: string | null = bestMeet;
+  while (cur !== null) {
+    pathF.push(cur);
+    cur = prevF.get(cur) ?? null;
+  }
+  pathF.reverse(); // now start ... meet
+
+  // Reconstruct meet -> ... -> end using prevB
+  const pathB: string[] = [];
+  cur = prevB.get(bestMeet) ?? null; // skip bestMeet to avoid duplicate
+  while (cur !== null) {
+    pathB.push(cur);
+    cur = prevB.get(cur) ?? null;
+  }
+
+  const nodePath = [...pathF, ...pathB]; // keys from start -> end
+
+  // Convert to coordinates
+  const result: { lat: number; lon: number }[] = nodePath.map((k) => {
+    const n = nodes.get(k)!;
+    return { lat: n.lat, lon: n.lon };
+  });
+
+  // Add exact end / start offsets if necessary (consistent with BFS behavior)
+  if (endResult.distance > 10) {
+    result.push({ lat: targetLat, lon: targetLng });
+  }
+  if (startResult.distance > 10) {
+    result.unshift({ lat: startLat, lon: startLng });
+  }
+
+  return result;
 }
 
 /**
@@ -110,86 +265,96 @@ export function findPathBFS(
  * Returns both the node key and the distance
  */
 export function findNearestNodeInCoverage(
-    lat: number,
-    lon: number,
-    nodes: Map<string, { lat: number; lon: number; inCoverage: boolean }>,
-    maxDistance: number = 5000 // Accept nodes within 5km
-): { nodeKey: string; distance: number; node: { lat: number; lon: number } } | null {
-    let nearest: string | null = null;
-    let minDist = Infinity;
+  lat: number,
+  lon: number,
+  nodes: Map<string, { lat: number; lon: number; inCoverage: boolean }>,
+  maxDistance: number = 5000, // Accept nodes within 5km
+): {
+  nodeKey: string;
+  distance: number;
+  node: { lat: number; lon: number };
+} | null {
+  let nearest: string | null = null;
+  let minDist = Infinity;
 
-    for (const [key, node] of nodes.entries()) {
-        if (!node.inCoverage) continue;
-        
-        const dist = haversineMeters(lat, lon, node.lat, node.lon);
-        if (dist < minDist) {
-            minDist = dist;
-            nearest = key;
-        }
-    }
+  for (const [key, node] of nodes.entries()) {
+    if (!node.inCoverage) continue;
 
-    if (nearest && minDist < maxDistance) {
-        const node = nodes.get(nearest)!;
-        return { nodeKey: nearest, distance: minDist, node: { lat: node.lat, lon: node.lon } };
+    const dist = haversineMeters(lat, lon, node.lat, node.lon);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = key;
     }
-    return null;
+  }
+
+  if (nearest && minDist < maxDistance) {
+    const node = nodes.get(nearest)!;
+    return {
+      nodeKey: nearest,
+      distance: minDist,
+      node: { lat: node.lat, lon: node.lon },
+    };
+  }
+  return null;
 }
 
 /**
  * Animate drone movement along a path
  */
 export function animateDroneAlongPath(
-    droneMarker: any,
-    path: { lat: number; lon: number }[],
-    onComplete: () => void
+  droneMarker: {
+    getLatLng: () => { lat: number; lng: number };
+    setLatLng: (pos: [number, number] | { lat: number; lng: number }) => void;
+  },
+  path: { lat: number; lon: number }[],
+  onComplete: () => void,
 ) {
-    if (path.length === 0) {
-        onComplete();
-        return;
+  if (path.length === 0) {
+    onComplete();
+    return;
+  }
+
+  const startPos = droneMarker.getLatLng();
+
+  // Add current position as first point if not already in path
+  const fullPath = [{ lat: startPos.lat, lon: startPos.lng }, ...path];
+
+  const animateSegment = (fromIndex: number, toIndex: number) => {
+    if (toIndex >= fullPath.length) {
+      onComplete();
+      return;
     }
 
-    let currentIndex = 0;
-    const startPos = droneMarker.getLatLng();
-    
-    // Add current position as first point if not already in path
-    const fullPath = [{ lat: startPos.lat, lon: startPos.lng }, ...path];
+    const from = fullPath[fromIndex];
+    const to = fullPath[toIndex];
 
-    const animateSegment = (fromIndex: number, toIndex: number) => {
-        if (toIndex >= fullPath.length) {
-            onComplete();
-            return;
-        }
+    // Calculate distance and time needed
+    const distance = haversineMeters(from.lat, from.lon, to.lat, to.lon);
+    const duration = (distance / SPEED_METERS_PER_SECOND) * 1000; // in milliseconds
+    const steps = Math.max(Math.floor(duration / STEP_DURATION), 1);
 
-        const from = fullPath[fromIndex];
-        const to = fullPath[toIndex];
-        
-        // Calculate distance and time needed
-        const distance = haversineMeters(from.lat, from.lon, to.lat, to.lon);
-        const duration = (distance / SPEED_METERS_PER_SECOND) * 1000; // in milliseconds
-        const steps = Math.max(Math.floor(duration / STEP_DURATION), 1);
-        
-        let currentStep = 0;
-        
-        const animate = () => {
-            currentStep++;
-            const progress = currentStep / steps;
-            
-            const lat = from.lat + (to.lat - from.lat) * progress;
-            const lng = from.lon + (to.lon - from.lon) * progress;
+    let currentStep = 0;
 
-            droneMarker.setLatLng([lat, lng]);
-            
-            if (currentStep < steps) {
-                setTimeout(animate, STEP_DURATION);
-            } else {
-                // Move to next segment
-                animateSegment(toIndex, toIndex + 1);
-            }
-        };
-        
-        animate();
+    const animate = () => {
+      currentStep++;
+      const progress = currentStep / steps;
+
+      const lat = from.lat + (to.lat - from.lat) * progress;
+      const lng = from.lon + (to.lon - from.lon) * progress;
+
+      droneMarker.setLatLng([lat, lng]);
+
+      if (currentStep < steps) {
+        setTimeout(animate, STEP_DURATION);
+      } else {
+        // Move to next segment
+        animateSegment(toIndex, toIndex + 1);
+      }
     };
-    
-    // Start animation from first to second point
-    animateSegment(0, 1);
+
+    animate();
+  };
+
+  // Start animation from first to second point
+  animateSegment(0, 1);
 }

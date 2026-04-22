@@ -109,7 +109,9 @@ export function setupMapLayers(
                     `
                         : ""
                     }
-                    <button onclick="window.returnDroneToInventory(${drone.id})" style="margin-top:8px;padding:2px 8px;background:#f59e0b;color:white;border:none;border-radius:4px;cursor:pointer;width:100%;">Return to Inventory</button>
+                    <div style="margin-top:8px;">
+                        <button onclick="(async()=>{ const r = prompt('Patrol radius in meters (leave blank for default)'); if(r === null) return; const n = (r && r.trim()) ? parseFloat(r) : undefined; if(r && r.trim() && isNaN(n)){ window.alert('Invalid radius'); return; } try { await (window.startPatrol && window.startPatrol(${drone.id}, n)); } catch(e){ window.alert('Failed to start patrol'); } })()" style="margin-top:8px;padding:6px 10px;background:#10b981;color:white;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:500;">Start Patrol</button>
+                    </div>
                 </div>
             `;
     };

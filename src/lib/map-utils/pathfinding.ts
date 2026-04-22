@@ -1,4 +1,4 @@
-import { manhattanDistance, haversineMeters } from "./geometry";
+import { haversineMeters } from "./geometry";
 
 /**
  * Finds the nearest node in the graph to a given latitude and longitude.
@@ -30,79 +30,154 @@ export function dijkstra(
   startKey: string,
   endKey: string,
   nodes: Map<string, { lat: number; lon: number }>,
-  adj: Map<string, string[]>,
-) {
+  adj: Map<string, Array<{ to: string; weight: number }>>,
+): { lat: number; lon: number }[] {
+  // Use a binary min-heap for priority queue for efficiency
+  class MinHeap {
+    heap: Array<{ key: string; priority: number }> = [];
+    index = new Map<string, number>();
+
+    size() {
+      return this.heap.length;
+    }
+
+    push(key: string, priority: number) {
+      const node = { key, priority };
+      this.heap.push(node);
+      this.index.set(key, this.heap.length - 1);
+      this._siftUp(this.heap.length - 1);
+    }
+
+    pop(): { key: string; priority: number } | null {
+      if (this.heap.length === 0) return null;
+      const top = this.heap[0];
+      const last = this.heap.pop()!;
+      this.index.delete(top.key);
+      if (this.heap.length > 0) {
+        this.heap[0] = last;
+        this.index.set(last.key, 0);
+        this._siftDown(0);
+      }
+      return top;
+    }
+
+    decrease(key: string, priority: number) {
+      const idx = this.index.get(key);
+      if (idx === undefined) {
+        this.push(key, priority);
+        return;
+      }
+      if (priority < this.heap[idx].priority) {
+        this.heap[idx].priority = priority;
+        this._siftUp(idx);
+      }
+    }
+
+    _siftUp(i: number) {
+      while (i > 0) {
+        const p = Math.floor((i - 1) / 2);
+        if (this.heap[p].priority <= this.heap[i].priority) break;
+        this._swap(i, p);
+        i = p;
+      }
+    }
+
+    _siftDown(i: number) {
+      const n = this.heap.length;
+      while (true) {
+        let smallest = i;
+        const l = 2 * i + 1;
+        const r = 2 * i + 2;
+        if (l < n && this.heap[l].priority < this.heap[smallest].priority)
+          smallest = l;
+        if (r < n && this.heap[r].priority < this.heap[smallest].priority)
+          smallest = r;
+        if (smallest === i) break;
+        this._swap(i, smallest);
+        i = smallest;
+      }
+    }
+
+    _swap(a: number, b: number) {
+      const A = this.heap[a];
+      const B = this.heap[b];
+      this.heap[a] = B;
+      this.heap[b] = A;
+      this.index.set(A.key, b);
+      this.index.set(B.key, a);
+    }
+  }
+
   const distances = new Map<string, number>();
   const prev = new Map<string, string | null>();
-  // Priority queue stores [key, priority], where priority is f(n) = g(n) + h(n)
-  const pq: [string, number][] = [];
+  const pq = new MinHeap();
   const visited = new Set<string>();
 
+  // Initialize distances
   for (const key of nodes.keys()) {
     distances.set(key, Infinity);
     prev.set(key, null);
   }
 
   distances.set(startKey, 0);
-  const endNode = nodes.get(endKey)!;
   const startNode = nodes.get(startKey)!;
+  const endNode = nodes.get(endKey)!;
+  pq.push(
+    startKey,
+    haversineMeters(startNode.lat, startNode.lon, endNode.lat, endNode.lon),
+  );
 
-  pq.push([startKey, manhattanDistance(startNode.lat, startNode.lon, endNode.lat, endNode.lon)]);
+  while (pq.size() > 0) {
+    const top = pq.pop();
+    if (!top) break;
+    const currentKey = top.key;
+    const currentDist = top.priority;
 
-  while (pq.length > 0) {
-    // Sort to get the node with the lowest priority
-    pq.sort((a, b) => a[1] - b[1]);
-    const [currentKey] = pq.shift()!;
-
-    if (visited.has(currentKey)) {
-      continue;
-    }
-    visited.add(currentKey);
+    // stale entry check
+    if (currentDist > (distances.get(currentKey) ?? Infinity)) continue;
 
     if (currentKey === endKey) {
-      break; // Path found
+      break; // found shortest distance to end
     }
 
-    const neighbors = adj.get(currentKey) || [];
-    const currentNode = nodes.get(currentKey)!;
-    const currentDistance = distances.get(currentKey)!;
+    if (visited.has(currentKey)) continue;
+    visited.add(currentKey);
 
-    for (const neighborKey of neighbors) {
-      if (visited.has(neighborKey)) {
-        continue;
-      }
+    const neighbors = adj.get(currentKey) ?? [];
+    for (const edge of neighbors) {
+      const neighborKey = edge.to;
+      const weight = edge.weight;
 
-      const neighborNode = nodes.get(neighborKey)!;
-      // g(n): Actual distance from start to neighbor
-      const weight = haversineMeters(currentNode.lat, currentNode.lon, neighborNode.lat, neighborNode.lon);
-      const newDist = currentDistance + weight;
-
-      if (newDist < (distances.get(neighborKey) ?? Infinity)) {
-        distances.set(neighborKey, newDist);
+      if (!nodes.has(neighborKey)) continue;
+      const alt = (distances.get(currentKey) ?? Infinity) + weight;
+      if (alt < (distances.get(neighborKey) ?? Infinity)) {
+        distances.set(neighborKey, alt);
         prev.set(neighborKey, currentKey);
-
-        // h(n): Heuristic distance from neighbor to end
-        const priority = newDist + manhattanDistance(neighborNode.lat, neighborNode.lon, endNode.lat, endNode.lon);
-        pq.push([neighborKey, priority]);
+        const neighborNode = nodes.get(neighborKey)!;
+        const heur = haversineMeters(
+          neighborNode.lat,
+          neighborNode.lon,
+          endNode.lat,
+          endNode.lon,
+        );
+        pq.decrease(neighborKey, alt + heur);
       }
     }
   }
 
   // Reconstruct the path from end to start
   const path: { lat: number; lon: number }[] = [];
-  let currentKey: string | null = endKey;
-  while (currentKey) {
-    const node = nodes.get(currentKey);
+  let cur: string | null = endKey;
+  while (cur) {
+    const node = nodes.get(cur);
     if (node) {
       path.unshift({ lat: node.lat, lon: node.lon });
     }
-    currentKey = prev.get(currentKey) ?? null;
+    cur = prev.get(cur) ?? null;
   }
 
-  // If the path starts at the end node, a path was found
-  if (path.length > 0 && path[0].lat === nodes.get(endKey)!.lat && path[0].lon === nodes.get(endKey)!.lon) {
-    // This check is a bit redundant given the loop condition, but ensures we don't return a partial path
-  }
-
-  return path.length > 0 && prev.has(endKey) ? path : [];
+  return path.length > 0 &&
+    (prev.get(endKey) !== undefined || endKey === startKey)
+    ? path
+    : [];
 }

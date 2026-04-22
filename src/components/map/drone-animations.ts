@@ -34,6 +34,11 @@ let activeAnimationsCount = 0;
 export type DroneAnimationController = {
   animating: boolean;
   cancel: () => void;
+  // When true, animateDroneMovement should suppress showing the user-facing
+  // cancellation alert. Callers that programmatically cancel an animation and
+  // will show their own single confirmation/result should set this flag to true
+  // on the controller stored in `droneAnimationStateRef` before calling `cancel()`.
+  suppressCancelAlert?: boolean;
 };
 
 const SPEED_MS_PER_METER = 50; // ms per meter; tweak to change speed
@@ -153,12 +158,26 @@ export async function animateDroneMovement(
   let cancelled = false;
   const controller: DroneAnimationController = {
     animating: true,
+    // default: do not suppress (callers may set this to true before invoking cancel)
+    suppressCancelAlert: false,
     cancel: () => {
       cancelled = true;
     },
   };
   // register controller
   droneAnimationStateRef.current.set(droneId, controller);
+
+  // Notify interested UI/controls that this drone animation has started.
+  // Use a CustomEvent so other client code (MapControls) can listen and update immediately.
+  try {
+    if (typeof window !== "undefined" && typeof CustomEvent !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("drone-animation-start", { detail: { droneId } }),
+      );
+    }
+  } catch {
+    // best-effort: ignore any errors dispatching the event
+  }
 
   try {
     // Start from the current position
@@ -279,12 +298,24 @@ export async function animateDroneMovement(
       }
     } else {
       // cancelled - nothing to persist (caller may decide to persist or not)
-      if (setAlert) {
-        setAlert({
-          type: "error",
-          message: `${drone.name} animation cancelled`,
-        });
-        setTimeout(() => setAlert?.(null), 2000);
+      // Respect an optional suppressCancelAlert flag on the registered controller:
+      // if present and true, do not show the default cancellation alert (caller
+      // will surface a single message itself).
+      try {
+        const registered =
+          droneAnimationStateRef.current.get(droneId) || controller;
+        const suppressed = !!(
+          registered && (registered as any).suppressCancelAlert
+        );
+        if (!suppressed && setAlert) {
+          setAlert({
+            type: "error",
+            message: `${drone.name} animation cancelled`,
+          });
+          setTimeout(() => setAlert?.(null), 2000);
+        }
+      } catch (e) {
+        // best-effort: ignore any issues while attempting to read suppression flag
       }
     }
   } finally {
@@ -299,6 +330,21 @@ export async function animateDroneMovement(
           ctrl.animating = false;
         } catch (e) {
           // ignore
+        }
+        // Emit a 'drone-animation-end' event with details so UI can react immediately.
+        try {
+          if (
+            typeof window !== "undefined" &&
+            typeof CustomEvent !== "undefined"
+          ) {
+            window.dispatchEvent(
+              new CustomEvent("drone-animation-end", {
+                detail: { droneId, cancelled },
+              }),
+            );
+          }
+        } catch {
+          // ignore event dispatch errors
         }
         setTimeout(() => {
           try {
