@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { tasks, towers, drones, waypoints } from "@/lib/schema";
+import { tasks, towers, drones, waypoints, stations } from "@/lib/schema";
 import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -45,15 +45,13 @@ export async function createTower(formData: FormData) {
   if (!name) return;
   if ([latitude, longitude, rangeMeters].some((n) => Number.isNaN(n))) return;
 
-  await db
-    .insert(towers)
-    .values({
-      name,
-      latitude: latitude.toString(),
-      longitude: longitude.toString(),
-      rangeMeters,
-      active,
-    });
+  await db.insert(towers).values({
+    name,
+    latitude: latitude.toString(),
+    longitude: longitude.toString(),
+    rangeMeters,
+    active,
+  });
   revalidatePath("/dashboard/towers");
 }
 
@@ -165,13 +163,11 @@ export async function createWaypoint(formData: FormData) {
     return;
   }
 
-  await db
-    .insert(waypoints)
-    .values({
-      name,
-      latitude: latitude.toString(),
-      longitude: longitude.toString(),
-    });
+  await db.insert(waypoints).values({
+    name,
+    latitude: latitude.toString(),
+    longitude: longitude.toString(),
+  });
   revalidatePath("/dashboard/map");
 }
 
@@ -196,5 +192,59 @@ export async function updateWaypoint(
     updateData.longitude = data.longitude.toString();
   await db.update(waypoints).set(updateData).where(eq(waypoints.id, id));
   revalidatePath("/dashboard/waypoints");
+  revalidatePath("/dashboard/map");
+}
+
+// Station CRUD (modeled after waypoints)
+export async function createStation(formData: FormData) {
+  const name = (formData.get("name") as string)?.trim();
+  const latitudeRaw = formData.get("latitude");
+  const longitudeRaw = formData.get("longitude");
+
+  if (!name) {
+    console.error("createStation: name is required");
+    return;
+  }
+
+  const latitude = Number(latitudeRaw);
+  const longitude = Number(longitudeRaw);
+
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+    console.error("createStation: invalid coordinates", {
+      latitude,
+      longitude,
+    });
+    return;
+  }
+
+  await db.insert(stations).values({
+    name,
+    latitude: latitude.toString(),
+    longitude: longitude.toString(),
+  });
+  revalidatePath("/dashboard/map");
+}
+
+export async function deleteStation(id: number) {
+  await db.delete(stations).where(eq(stations.id, id));
+  revalidatePath("/dashboard/map");
+}
+
+export async function updateStation(
+  id: number,
+  data: {
+    name?: string;
+    latitude?: number;
+    longitude?: number;
+  },
+) {
+  const updateData: any = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.latitude !== undefined)
+    updateData.latitude = data.latitude.toString();
+  if (data.longitude !== undefined)
+    updateData.longitude = data.longitude.toString();
+  await db.update(stations).set(updateData).where(eq(stations.id, id));
+  revalidatePath("/dashboard/stations");
   revalidatePath("/dashboard/map");
 }

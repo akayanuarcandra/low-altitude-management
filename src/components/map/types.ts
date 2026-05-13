@@ -1,24 +1,31 @@
 export type TowerDTO = {
-    id: number;
-    name: string;
-    latitude: number;
-    longitude: number;
-    rangeMeters: number;
-    active?: boolean | null;
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  rangeMeters: number;
+  active?: boolean | null;
 };
 
 export type DroneDTO = {
-    id: number;
-    name: string;
-    latitude?: number | null;
-    longitude?: number | null;
-    towerId?: number | null;
-    status?: string | null;
+  id: number;
+  name: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  towerId?: number | null;
+  status?: string | null;
 };
 
 export type WaypointDTO = {
-    id: number;
-    name: string;
-    latitude: number;
-    longitude: number;
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+};
+
+export type StationDTO = {
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
 };

@@ -1,14 +1,22 @@
 import { db } from "@/lib/db";
-import { drones, towers, waypoints } from "@/lib/schema";
+import { drones, towers, waypoints, stations } from "@/lib/schema";
 import { desc } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InteractiveMapView } from "@/components/map/interactive-map-view";
 
 export default async function MapPage() {
-  const towersList = await db.select().from(towers).orderBy(desc(towers.createdAt));
-  const dronesList = await db.select().from(drones).orderBy(desc(drones.createdAt));
-  const waypointsList = await db.select().from(waypoints).orderBy(desc(waypoints.createdAt));
-
+  const towersList = await db
+    .select()
+    .from(towers)
+    .orderBy(desc(towers.createdAt));
+  const dronesList = await db
+    .select()
+    .from(drones)
+    .orderBy(desc(drones.createdAt));
+  const waypointsList = await db
+    .select()
+    .from(waypoints)
+    .orderBy(desc(waypoints.createdAt));
   // Cast decimals/strings to numbers for serialization
   const towersDTO = towersList.map((t) => ({
     id: t.id,
@@ -46,18 +54,33 @@ export default async function MapPage() {
     longitude: Number(w.longitude),
   }));
 
+  const stationsList = await db
+    .select()
+    .from(stations)
+    .orderBy(desc(stations.createdAt));
+  const stationsDTO = stationsList.map((s) => ({
+    id: s.id,
+    name: s.name,
+    latitude: Number(s.latitude),
+    longitude: Number(s.longitude),
+  }));
+
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-9xl mx-auto space-y-4">
         <div>
           <h1 className="text-3xl font-bold mb-2">Operations Map</h1>
-          <p className="text-gray-600">Deploy drones from inventory to the map. Ensure they are placed within tower coverage areas.</p>
+          <p className="text-gray-600">
+            Deploy drones from inventory to the map. Ensure they are placed
+            within tower coverage areas.
+          </p>
         </div>
 
         <InteractiveMapView
           towers={towersDTO}
           drones={deployedDrones}
           waypoints={waypointsDTO}
+          stations={stationsDTO}
           inventoryDrones={inventoryDrones}
         />
       </div>

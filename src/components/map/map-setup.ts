@@ -10,6 +10,7 @@ export function setupMapLayers(
   towers: TowerDTO[],
   drones: DroneDTO[],
   waypoints: WaypointDTO[],
+  stations: { id: number; name: string; latitude: number; longitude: number }[],
   deployedDronesRef: React.MutableRefObject<
     Map<number, { marker: any; circleMarker: any }>
   >,
@@ -238,6 +239,24 @@ export function setupMapLayers(
         draggable: false,
       })
         .bindPopup(`<strong>${waypoint.name}</strong>`)
+        .addTo(map);
+    });
+  }
+
+  // Draw stations
+  if (stations && stations.length > 0) {
+    stations.forEach((station) => {
+      const stationIcon = L.icon({
+        iconUrl: "/icons/station.svg",
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -12],
+      });
+      L.marker([station.latitude, station.longitude], {
+        icon: stationIcon,
+        draggable: false,
+      })
+        .bindPopup(`<strong>${station.name}</strong>`) // could add actions later
         .addTo(map);
     });
   }

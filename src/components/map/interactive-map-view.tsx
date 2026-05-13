@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { updateDrone, createWaypoint } from "@/app/actions";
 import { Card, CardContent } from "@/components/ui/card";
 import "leaflet/dist/leaflet.css";
-import { TowerDTO, DroneDTO, WaypointDTO } from "./types";
+import { TowerDTO, DroneDTO, WaypointDTO, StationDTO } from "./types";
 import { MapControls } from "./map-controls";
 import { buildGraph, getRoadNetwork } from "@/lib/map-utils/network";
 import {
@@ -47,11 +47,13 @@ export function InteractiveMapView({
   towers,
   drones,
   waypoints,
+  stations,
   inventoryDrones,
 }: {
   towers: TowerDTO[];
   drones: DroneDTO[];
   waypoints: WaypointDTO[];
+  stations: StationDTO[];
   inventoryDrones: DroneDTO[];
 }) {
   // Leaflet map reference (typed)
@@ -94,6 +96,18 @@ export function InteractiveMapView({
     adj: Map<string, Array<{ to: string; weight: number }>>;
   } | null>(null);
   const roadNetworkFetchedRef = useRef(false);
+
+  // Modal state for inline Task creation
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [taskModalDroneId, setTaskModalDroneId] = useState<number | undefined>(
+    undefined,
+  );
+
+  // Tasks list modal state
+  const [showTasksModal, setShowTasksModal] = useState(false);
+  const [tasksModalDroneId, setTasksModalDroneId] = useState<
+    number | undefined
+  >(undefined);
 
   // Helper: compute destination lat/lng given start lat/lng, bearing (degrees), and distance (m)
   function destinationLatLng(
@@ -190,6 +204,33 @@ export function InteractiveMapView({
           }
         }, 1000);
 
+        // Expose a handler to open the Add Task UI for a drone.
+        (window as any).openAddTaskForDrone = (droneId: number) => {
+          try {
+            setShowTaskModal(true);
+            setTaskModalDroneId(droneId);
+          } catch (err) {
+            console.error("openAddTaskForDrone failed", err);
+            try {
+              const url = `/dashboard/tasks/new?droneId=${droneId}`;
+              window.open(url, "_blank");
+            } catch {}
+          }
+        };
+
+        // Expose a handler to open the Task list modal for a drone
+        (window as any).openTasksForDrone = (droneId: number) => {
+          try {
+            setShowTasksModal(true);
+            setTasksModalDroneId(droneId);
+          } catch (err) {
+            console.error("openTasksForDrone failed", err);
+            try {
+              window.open(`/dashboard/tasks/new?droneId=${droneId}`, "_blank");
+            } catch {}
+          }
+        };
+
         setIsLoading(false);
       } catch (error) {
         console.error("Error initializing map and graph:", error);
@@ -211,6 +252,7 @@ export function InteractiveMapView({
       towers,
       drones,
       waypoints,
+      stations,
       deployedDronesRef,
       isInitialRender,
       droneAnimationStateRef,

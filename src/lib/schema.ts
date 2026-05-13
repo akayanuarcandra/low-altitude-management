@@ -1,12 +1,21 @@
-import { pgTable, serial, text, boolean, integer, timestamp, decimal, foreignKey } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  serial,
+  text,
+  boolean,
+  integer,
+  timestamp,
+  decimal,
+  foreignKey,
+} from "drizzle-orm/pg-core";
 
 export const tasks = pgTable("Task", {
-    id: serial("id").primaryKey(),
-    title: text("title").notNull(),
-    description: text("description"),
-    quantity: integer("quantity").notNull().default(1),
-    completed: boolean("completed").notNull().default(false),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  quantity: integer("quantity").notNull().default(1),
+  completed: boolean("completed").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 /**
@@ -15,13 +24,13 @@ export const tasks = pgTable("Task", {
  * Each tower has a location (latitude, longitude) and a broadcast range in meters.
  */
 export const towers = pgTable("Tower", {
-    id: serial("id").primaryKey(),
-    name: text("name").notNull(),
-    latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(), // e.g., 40.7128
-    longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(), // e.g., -74.0060
-    rangeMeters: integer("range_meters").notNull(), // broadcast range in meters
-    active: boolean("active").notNull().default(true),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(), // e.g., 40.7128
+  longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(), // e.g., -74.0060
+  rangeMeters: integer("range_meters").notNull(), // broadcast range in meters
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 /**
@@ -29,7 +38,9 @@ export const towers = pgTable("Tower", {
  * Represents drones in the inventory that can be placed on the map.
  * Drones can be assigned to towers when placed on the map.
  */
-export const drones = pgTable("Drone", {
+export const drones = pgTable(
+  "Drone",
+  {
     id: serial("id").primaryKey(),
     name: text("name").notNull(),
     latitude: decimal("latitude", { precision: 10, scale: 8 }), // null when in inventory
@@ -37,22 +48,37 @@ export const drones = pgTable("Drone", {
     towerId: integer("tower_id"), // null when in inventory, assigned when placed on map
     status: text("status").notNull().default("inventory"), // "inventory", "deployed", "inactive"
     createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (table) => ({
+  },
+  (table) => ({
     // Optional foreign key: a drone can reference a tower when deployed
     towerFk: foreignKey({
-        columns: [table.towerId],
-        foreignColumns: [towers.id],
+      columns: [table.towerId],
+      foreignColumns: [towers.id],
     }).onDelete("set null"),
-}));
+  }),
+);
 
 /**
  * Waypoints Table
  * Represents destination points placed on the map where drones can navigate to.
  */
 export const waypoints = pgTable("Waypoint", {
-    id: serial("id").primaryKey(),
-    name: text("name").notNull(),
-    latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(),
-    longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(),
+  longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/**
+ * Stations Table
+ * Represents physical stations on the map where drones can return to (like depots).
+ * Modeled similarly to waypoints.
+ */
+export const stations = pgTable("Station", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(),
+  longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });

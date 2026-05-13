@@ -4,13 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Home, Drone, Radio, MapPin, Map, ChevronLeft } from "lucide-react";
+import { Home, Drone, Radio, MapPin, Warehouse, Map, ChevronLeft } from "lucide-react";
 
 const sidebarLinks = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/dashboard/drones", label: "Drones", icon: Drone },
   { href: "/dashboard/towers", label: "Towers", icon: Radio },
   { href: "/dashboard/waypoints", label: "Waypoints", icon: MapPin },
+  { href: "/dashboard/stations", label: "Stations", icon: Warehouse },
   { href: "/dashboard/map", label: "Map View", icon: Map },
 ];
 
