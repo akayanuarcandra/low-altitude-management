@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { updateDrone, createWaypoint } from "@/app/actions";
+import { updateDrone, createWaypoint, createStation } from "@/app/actions";
 import { Card, CardContent } from "@/components/ui/card";
 import "leaflet/dist/leaflet.css";
 import { TowerDTO, DroneDTO, WaypointDTO, StationDTO } from "./types";
@@ -65,7 +65,8 @@ export function InteractiveMapView({
   >(null);
   const [isPlacingDrone, setIsPlacingDrone] = useState(false);
   const [isAddingWaypoint, setIsAddingWaypoint] = useState(false);
-  const [, setAlert] = useState<{
+  const [isAddingStation, setIsAddingStation] = useState(false);
+  [, setAlert] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
@@ -290,6 +291,26 @@ export function InteractiveMapView({
             message: `Waypoint "${name}" created successfully!`,
           });
           setIsAddingWaypoint(false);
+          setTimeout(() => setAlert(null), 3000);
+        }
+        return;
+      }
+
+      if (isAddingStation) {
+        const name = prompt(
+          `Create station at (${lat.toFixed(6)}, ${lng.toFixed(6)})?\nEnter station name:`,
+        );
+        if (name && name.trim()) {
+          const formData = new FormData();
+          formData.append("name", name.trim());
+          formData.append("latitude", String(lat));
+          formData.append("longitude", String(lng));
+          await createStation(formData);
+          setAlert({
+            type: "success",
+            message: `Station "${name}" created successfully!`,
+          });
+          setIsAddingStation(false);
           setTimeout(() => setAlert(null), 3000);
         }
         return;
@@ -910,6 +931,8 @@ export function InteractiveMapView({
           setIsPlacingDrone={setIsPlacingDrone}
           isAddingWaypoint={isAddingWaypoint}
           setIsAddingWaypoint={setIsAddingWaypoint}
+          isAddingStation={isAddingStation}
+          setIsAddingStation={setIsAddingStation}
           setAlert={setAlert}
         />
       </div>

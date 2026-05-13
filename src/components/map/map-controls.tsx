@@ -16,6 +16,8 @@ interface MapControlsProps {
   setIsPlacingDrone: (placing: boolean) => void;
   isAddingWaypoint: boolean;
   setIsAddingWaypoint: (adding: boolean) => void;
+  isAddingStation: boolean;
+  setIsAddingStation: (adding: boolean) => void;
   setAlert: (
     alert: { type: "success" | "error"; message: string } | null,
   ) => void;
@@ -30,6 +32,8 @@ export function MapControls({
   setIsPlacingDrone,
   isAddingWaypoint,
   setIsAddingWaypoint,
+  isAddingStation,
+  setIsAddingStation,
   setAlert,
 }: MapControlsProps) {
   // Trigger a periodic re-render so UI (buttons/labels) reflect
@@ -72,6 +76,38 @@ export function MapControls({
           {isAddingWaypoint && (
             <p className="text-sm text-green-700 bg-green-50 p-2 rounded mt-3">
               Click anywhere on the map to create a new waypoint.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add Station Control */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Add Station</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button
+            onClick={() => {
+              if (isPlacingDrone) {
+                setAlert({
+                  type: "error",
+                  message: "Cancel drone placement first",
+                });
+                setTimeout(() => setAlert(null), 3000);
+                return;
+              }
+              setIsAddingStation(!isAddingStation);
+            }}
+            variant={isAddingStation ? "destructive" : "secondary"}
+            className="w-full"
+          >
+            {isAddingStation ? "Cancel" : "Add Station on Map"}
+          </Button>
+
+          {isAddingStation && (
+            <p className="text-sm text-green-700 bg-green-50 p-2 rounded mt-3">
+              Click anywhere on the map to create a new station.
             </p>
           )}
         </CardContent>
