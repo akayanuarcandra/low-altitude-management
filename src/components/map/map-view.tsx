@@ -6,6 +6,7 @@ import {
   createWaypoint,
   deleteWaypoint,
   deleteTower,
+  deleteStation,
 } from "@/app/actions";
 
 // Dynamic imports for Leaflet (client-side only)
@@ -61,11 +62,13 @@ export function MapView({
   towers,
   drones,
   waypoints,
+  stations = [],
   showWaypointToggle = true,
 }: {
   towers: TowerDTO[];
   drones: DroneDTO[];
   waypoints: WaypointDTO[];
+  stations?: { id: number; name: string; latitude: number; longitude: number }[];
   showWaypointToggle?: boolean;
 }) {
   const mapRef = useRef<any>(null);
@@ -284,6 +287,29 @@ export function MapView({
         return dist <= t.rangeMeters;
       });
     };
+
+    // Draw stations markers
+    stations.forEach((s) => {
+      const pos = L.latLng(s.latitude, s.longitude);
+      const stationIcon = L.icon({
+        iconUrl: "/icons/station.svg",
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -12],
+      });
+      const marker = L.marker(pos, { icon: stationIcon, draggable: false })
+        .bindPopup(
+          `<div>
+            <b>${s.name}</b><br/>
+            Lat: ${s.latitude.toFixed(6)}<br/>
+            Lon: ${s.longitude.toFixed(6)}<br/>
+            <a href="/dashboard/stations/${s.id}/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>
+            <button onclick="window.deleteStation(${s.id})" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>
+          </div>",
+        )
+        .addTo(layerGroup);
+      bounds.extend(pos);
+    });
 
     if (!bounds.isValid()) {
       map.setView([0, 0], 2);

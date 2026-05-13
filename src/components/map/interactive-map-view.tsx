@@ -66,7 +66,7 @@ export function InteractiveMapView({
   const [isPlacingDrone, setIsPlacingDrone] = useState(false);
   const [isAddingWaypoint, setIsAddingWaypoint] = useState(false);
   const [isAddingStation, setIsAddingStation] = useState(false);
-  [, setAlert] = useState<{
+  const [, setAlert] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
