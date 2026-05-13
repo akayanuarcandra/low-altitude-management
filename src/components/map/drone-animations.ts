@@ -1,4 +1,4 @@
-/**
+/*
  * src/components/map/drone-animations.ts
  *
  * Cancellable, requestAnimationFrame-driven drone animation helper.
@@ -41,7 +41,7 @@ export type DroneAnimationController = {
   suppressCancelAlert?: boolean;
 };
 
-const SPEED_MS_PER_METER = 50; // ms per meter; tweak to change speed
+const SPEED_MS_PER_METER = 100; // ms per meter; tweak to change speed
 const MIN_DURATION_MS = 100; // ensure short distances still animate noticeably
 const MAX_DURATION_MS = 30000; // cap for very long movements
 

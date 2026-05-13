@@ -6,6 +6,7 @@ import { NativeSelect } from "@/components/ui/select-native";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DroneDTO } from "./types";
 import { updateDrone } from "@/app/actions";
+import TaskListModal from "@/components/tasks/task-list-modal";
 
 interface MapControlsProps {
   inventoryDrones: DroneDTO[];
@@ -21,6 +22,8 @@ interface MapControlsProps {
   setAlert: (
     alert: { type: "success" | "error"; message: string } | null,
   ) => void;
+  // Optional callback to notify parent when tasks are started for a drone
+  onRunStarted?: (started: Array<any>) => void;
 }
 
 export function MapControls({
@@ -35,7 +38,15 @@ export function MapControls({
   isAddingStation,
   setIsAddingStation,
   setAlert,
+  onRunStarted,
 }: MapControlsProps) {
+  const [showTasksModal, setShowTasksModal] = useState(false);
+  const [tasksModalDroneId, setTasksModalDroneId] = useState<number | null>(
+    null,
+  );
+  const [tasksModalDroneName, setTasksModalDroneName] = useState<
+    string | undefined
+  >(undefined);
   // Trigger a periodic re-render so UI (buttons/labels) reflect
   // changes in animation state exposed on window (e.g. window.isDroneAnimating).
   // We intentionally only keep a setter because we don't need the value itself.
@@ -76,38 +87,6 @@ export function MapControls({
           {isAddingWaypoint && (
             <p className="text-sm text-green-700 bg-green-50 p-2 rounded mt-3">
               Click anywhere on the map to create a new waypoint.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Add Station Control */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Add Station</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Button
-            onClick={() => {
-              if (isPlacingDrone) {
-                setAlert({
-                  type: "error",
-                  message: "Cancel drone placement first",
-                });
-                setTimeout(() => setAlert(null), 3000);
-                return;
-              }
-              setIsAddingStation(!isAddingStation);
-            }}
-            variant={isAddingStation ? "destructive" : "secondary"}
-            className="w-full"
-          >
-            {isAddingStation ? "Cancel" : "Add Station on Map"}
-          </Button>
-
-          {isAddingStation && (
-            <p className="text-sm text-green-700 bg-green-50 p-2 rounded mt-3">
-              Click anywhere on the map to create a new station.
             </p>
           )}
         </CardContent>
@@ -308,12 +287,56 @@ export function MapControls({
                     >
                       Return to Inventory
                     </Button>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setTasksModalDroneId(drone.id);
+                        setTasksModalDroneName(drone.name);
+                        setShowTasksModal(true);
+                      }}
+                    >
+                      View Tasks
+                    </Button>
                   </div>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {showTasksModal && tasksModalDroneId && (
+        <TaskListModal
+          droneId={tasksModalDroneId}
+          droneName={tasksModalDroneName}
+          onClose={() => {
+            setShowTasksModal(false);
+            setTasksModalDroneId(null);
+            setTasksModalDroneName(undefined);
+          }}
+          onRunStarted={(started) => {
+            setShowTasksModal(false);
+            setTimeout(() => {
+              setTasksModalDroneId(null);
+              setTasksModalDroneName(undefined);
+            }, 200);
+
+            // bubble up so parent (e.g. InteractiveMapView) can animate drones
+            try {
+              if (onRunStarted) onRunStarted(started);
+            } catch (e) {
+              // ignore
+            }
+
+            // you can surface a small alert if desired
+            if (started && started.length > 0) {
+              setAlert({ type: "success", message: "Task run started" });
+              setTimeout(() => setAlert(null), 2500);
+            }
+          }}
+        />
       )}
     </div>
   );

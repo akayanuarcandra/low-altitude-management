@@ -1,7 +1,14 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { tasks, towers, drones, waypoints, stations } from "@/lib/schema";
+import {
+  tasks,
+  towers,
+  drones,
+  waypoints,
+  stations,
+  taskItems,
+} from "@/lib/schema";
 import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -24,7 +31,12 @@ export async function createTask(formData: FormData) {
 }
 
 export async function toggleTask(id: number, completed: boolean) {
-  await db.update(tasks).set({ completed }).where(eq(tasks.id, id)); //the updates works by matching the id
+  // Map boolean completed to status text and set completedAt timestamp when completed
+  const updateData: any = {};
+  updateData.status = completed ? "completed" : "pending";
+  if (completed) updateData.completedAt = new Date();
+  else updateData.completedAt = null;
+  await db.update(tasks).set(updateData).where(eq(tasks.id, id));
   revalidatePath("/");
 }
 
@@ -192,6 +204,179 @@ export async function updateWaypoint(
     updateData.longitude = data.longitude.toString();
   await db.update(waypoints).set(updateData).where(eq(waypoints.id, id));
   revalidatePath("/dashboard/waypoints");
+  revalidatePath("/dashboard/map");
+}
+
+// TaskItems CRUD & Task helpers
+export async function createTaskWithItems(formData: FormData) {
+  // keep for compatibility with direct server action callers (FormData)
+  const title = (formData.get("title") as string)?.trim();
+  const description =
+    (formData.get("description") as string | null)?.trim() || null;
+  const itemsRaw = formData.get("items") as string | null; // expect JSON stringified array
+  const droneIdRaw = formData.get("droneId") as string | null;
+
+  const body: any = { title, description };
+  if (itemsRaw)
+    body.items = (() => {
+      try {
+        return JSON.parse(itemsRaw as string);
+      } catch {
+        return [];
+      }
+    })();
+
+  if (droneIdRaw) {
+    const n = Number(droneIdRaw);
+    if (!Number.isNaN(n)) body.droneId = n;
+  }
+
+  return createTaskWithItemsFromJSON(body);
+}
+
+export async function createTaskWithItemsFromJSON(body: any) {
+  const title = (body?.title as string)?.trim();
+  const description = (body?.description as string | null)?.trim() || null;
+  const items = Array.isArray(body?.items) ? body.items : [];
+
+  if (!title) return { ok: false, message: "title required" };
+
+  // Create task; include quantity if provided on body
+  const insertData: any = { title, description };
+  // Accept quantity as number or numeric string
+  if (body?.quantity !== undefined) {
+    const q = Number(body.quantity);
+    if (!Number.isNaN(q)) insertData.quantity = q;
+  }
+  // If caller provided a droneId, assign the task to that drone
+  if (body?.droneId !== undefined && body?.droneId !== null) {
+    const n = Number(body.droneId);
+    if (!Number.isNaN(n)) insertData.droneId = n;
+  }
+
+  try {
+    console.log("createTaskWithItemsFromJSON: inserting task", {
+      body,
+      insertData,
+    });
+    const [res] = await db.insert(tasks).values(insertData).returning();
+    const taskId = (res as any).id;
+
+    // items: array of { waypointId?, name?, latitude?, longitude?, quantity?, seq?, assignedDroneId? }
+    for (const it of items) {
+      let itemId: number | null = null;
+      if (it?.waypointId) itemId = Number(it.waypointId);
+      if (!itemId && it?.latitude && it?.longitude) {
+        const name = it.name || `Waypoint for task ${taskId}`;
+        const [wp] = await db
+          .insert(waypoints)
+          .values({
+            name,
+            latitude: String(it.latitude),
+            longitude: String(it.longitude),
+          })
+          .returning();
+        itemId = (wp as any).id;
+      }
+
+      // Sanitize fields: convert empty strings to null and parse numeric values
+      const latVal =
+        it?.latitude === undefined ||
+        it?.latitude === null ||
+        it?.latitude === ""
+          ? null
+          : String(it.latitude);
+      const lonVal =
+        it?.longitude === undefined ||
+        it?.longitude === null ||
+        it?.longitude === ""
+          ? null
+          : String(it.longitude);
+      const qty = (() => {
+        if (
+          it?.quantity === undefined ||
+          it?.quantity === null ||
+          it?.quantity === ""
+        )
+          return 1;
+        const n = Number(it.quantity);
+        return Number.isFinite(n) ? n : 1;
+      })();
+      const seqVal = (() => {
+        if (it?.seq === undefined || it?.seq === null || it?.seq === "")
+          return 0;
+        const n = Number(it.seq);
+        return Number.isFinite(n) ? n : 0;
+      })();
+
+      // Ensure deliveryLatitude/deliveryLongitude are set: if itemId (waypoint) exists and lat/lon not provided,
+      // fetch from waypoint record.
+      let finalLat = latVal;
+      let finalLon = lonVal;
+      if ((finalLat === null || finalLon === null) && itemId) {
+        try {
+          const [wpRow] = await db
+            .select()
+            .from(waypoints)
+            .where(eq(waypoints.id, itemId));
+          if (wpRow) {
+            finalLat = String(wpRow.latitude);
+            finalLon = String(wpRow.longitude);
+          }
+        } catch (e) {
+          // ignore; we'll let DB validate non-null constraint if still missing
+        }
+      }
+
+      await db.insert(taskItems).values({
+        taskId,
+        itemId: itemId ?? null,
+        deliveryLatitude: finalLat,
+        deliveryLongitude: finalLon,
+        quantity: qty,
+        sequence: seqVal,
+      });
+    }
+
+    revalidatePath("/dashboard/map");
+    revalidatePath("/dashboard/tasks");
+    return { ok: true, taskId };
+  } catch (err) {
+    console.error("createTaskWithItemsFromJSON ERROR inserting task", {
+      body,
+      insertData,
+      err,
+    });
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function getTaskItems(taskId: number) {
+  const rows = await db
+    .select()
+    .from(taskItems)
+    .where(eq(taskItems.taskId, taskId));
+  return rows;
+}
+
+export async function assignTaskItemToDrone(
+  itemId: number,
+  droneId: number | null,
+) {
+  // Not supported by current DB schema (no assigned_drone_id column on TaskItem)
+  return { ok: false, error: "assign to drone not supported by DB schema" };
+}
+
+export async function updateTaskItemStatus(itemId: number, status: string) {
+  // Not supported by current DB schema (no status column on TaskItem)
+  return { ok: false, error: "per-item status not supported by DB schema" };
+}
+
+export async function deleteTaskWithItems(taskId: number) {
+  // delete cascade should remove task items, but be explicit
+  await db.delete(taskItems).where(eq(taskItems.taskId, taskId));
+  await db.delete(tasks).where(eq(tasks.id, taskId));
+  revalidatePath("/dashboard/tasks");
   revalidatePath("/dashboard/map");
 }
 

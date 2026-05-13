@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { stations } from "@/lib/schema";
+import { stations, towers } from "@/lib/schema";
 import { desc } from "drizzle-orm";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,21 @@ export default async function StationsPage() {
     longitude: Number(s.longitude),
   }));
 
+  const towersList = await db
+    .select()
+    .from(towers)
+    .orderBy(desc(towers.createdAt));
+  const towersDTO = towersList
+    .map((t) => ({
+      id: t.id,
+      name: t.name,
+      latitude: t.latitude === null ? null : Number(t.latitude),
+      longitude: t.longitude === null ? null : Number(t.longitude),
+      rangeMeters: Number(t.rangeMeters),
+      active: typeof (t as any).active === "boolean" ? (t as any).active : true,
+    }))
+    .filter((t) => t.latitude !== null && t.longitude !== null);
+
   return (
     <div className="min-h-screen bg-gray-100">
       <div className="pt-8 px-8">
@@ -38,7 +53,7 @@ export default async function StationsPage() {
                 <CardContent className="">
                   <div className="h-170 rounded-md overflow-hidden border">
                     <MapView
-                      towers={[]}
+                      towers={towersDTO}
                       drones={[]}
                       waypoints={[]}
                       stations={stationsDTO}

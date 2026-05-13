@@ -14,43 +14,36 @@ export const tasks = pgTable("Task", {
   title: text("title").notNull(),
   description: text("description"),
   quantity: integer("quantity").notNull().default(1),
-  completed: boolean("completed").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  droneId: integer("drone_id"),
+  status: text("status").notNull().default("pending"),
+  scheduledAt: timestamp("scheduled_at"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
 });
 
-/**
- * Towers Table
- * Represents communication towers placed on the map.
- * Each tower has a location (latitude, longitude) and a broadcast range in meters.
- */
 export const towers = pgTable("Tower", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(), // e.g., 40.7128
-  longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(), // e.g., -74.0060
-  rangeMeters: integer("range_meters").notNull(), // broadcast range in meters
+  latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(),
+  longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(),
+  rangeMeters: integer("range_meters").notNull(),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-/**
- * Drones Table
- * Represents drones in the inventory that can be placed on the map.
- * Drones can be assigned to towers when placed on the map.
- */
 export const drones = pgTable(
   "Drone",
   {
     id: serial("id").primaryKey(),
     name: text("name").notNull(),
-    latitude: decimal("latitude", { precision: 10, scale: 8 }), // null when in inventory
-    longitude: decimal("longitude", { precision: 11, scale: 8 }), // null when in inventory
-    towerId: integer("tower_id"), // null when in inventory, assigned when placed on map
-    status: text("status").notNull().default("inventory"), // "inventory", "deployed", "inactive"
+    latitude: decimal("latitude", { precision: 10, scale: 8 }),
+    longitude: decimal("longitude", { precision: 11, scale: 8 }),
+    towerId: integer("tower_id"),
+    status: text("status").notNull().default("inventory"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
-    // Optional foreign key: a drone can reference a tower when deployed
     towerFk: foreignKey({
       columns: [table.towerId],
       foreignColumns: [towers.id],
@@ -58,10 +51,6 @@ export const drones = pgTable(
   }),
 );
 
-/**
- * Waypoints Table
- * Represents destination points placed on the map where drones can navigate to.
- */
 export const waypoints = pgTable("Waypoint", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -70,11 +59,6 @@ export const waypoints = pgTable("Waypoint", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-/**
- * Stations Table
- * Represents physical stations on the map where drones can return to (like depots).
- * Modeled similarly to waypoints.
- */
 export const stations = pgTable("Station", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -82,3 +66,34 @@ export const stations = pgTable("Station", {
   longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// TaskItem table uses existing DB columns: item_id, delivery_latitude, delivery_longitude, sequence
+export const taskItems = pgTable(
+  "TaskItem",
+  {
+    id: serial("id").primaryKey(),
+    taskId: integer("task_id").notNull(),
+    itemId: integer("item_id"),
+    quantity: integer("quantity").notNull().default(1),
+    deliveryLatitude: decimal("delivery_latitude", {
+      precision: 10,
+      scale: 8,
+    }).notNull(),
+    deliveryLongitude: decimal("delivery_longitude", {
+      precision: 11,
+      scale: 8,
+    }).notNull(),
+    sequence: integer("sequence").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    taskFk: foreignKey({
+      columns: [table.taskId],
+      foreignColumns: [tasks.id],
+    }).onDelete("cascade"),
+    itemFk: foreignKey({
+      columns: [table.itemId],
+      foreignColumns: [waypoints.id],
+    }).onDelete("set null"),
+  }),
+);

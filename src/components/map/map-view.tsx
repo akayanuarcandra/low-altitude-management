@@ -68,14 +68,20 @@ export function MapView({
   towers: TowerDTO[];
   drones: DroneDTO[];
   waypoints: WaypointDTO[];
-  stations?: { id: number; name: string; latitude: number; longitude: number }[];
+  stations?: {
+    id: number;
+    name: string;
+    latitude: number;
+    longitude: number;
+  }[];
   showWaypointToggle?: boolean;
 }) {
   const mapRef = useRef<any>(null);
   const layerGroupRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const droneMarkersRef = useRef<any>(
-    globalThis.Map ? new globalThis.Map() : {},
+    // prefer a Map-like interface; guard if globalThis.Map not present
+    typeof Map !== "undefined" ? new Map<number, any>() : ({} as any),
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingWaypoint, setIsCreatingWaypoint] = useState(false);
@@ -123,7 +129,19 @@ export function MapView({
     const layerGroup = layerGroupRef.current;
 
     layerGroup.clearLayers();
-    droneMarkersRef.current.clear();
+    // Safely clear droneMarkersRef if it supports a clear() method, otherwise reset to a new Map
+    try {
+      if (
+        droneMarkersRef.current &&
+        typeof droneMarkersRef.current.clear === "function"
+      ) {
+        droneMarkersRef.current.clear();
+      } else {
+        droneMarkersRef.current = new Map();
+      }
+    } catch (e) {
+      droneMarkersRef.current = new Map();
+    }
 
     const bounds = L.latLngBounds([]);
 
@@ -147,18 +165,31 @@ export function MapView({
         iconAnchor: [16, 16],
         popupAnchor: [0, -16],
       });
-      L.marker(center, { icon: towerIcon })
-        .bindPopup(
-          `<div>
-            <b>${t.name}</b><br/>
-            Range: ${t.rangeMeters} m<br/>
-            Lat: ${t.latitude.toFixed(6)}<br/>
-            Lon: ${t.longitude.toFixed(6)}<br/>
-            <a href="/dashboard/towers/${t.id}/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>
-            <button onclick="window.deleteTower(${t.id})" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>
-          </div>`,
-        )
-        .addTo(layerGroup);
+      const towerPopupHtml =
+        "<div>" +
+        "<b>" +
+        t.name +
+        "</b><br/>" +
+        "Range: " +
+        t.rangeMeters +
+        " m<br/>" +
+        "Lat: " +
+        t.latitude.toFixed(6) +
+        "<br/>" +
+        "Lon: " +
+        t.longitude.toFixed(6) +
+        "<br/>" +
+        '<a href="/dashboard/towers/' +
+        t.id +
+        '/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>' +
+        '<button onclick="window.deleteTower(' +
+        t.id +
+        ')" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>' +
+        "</div>";
+      // Render a non-interactive tower marker (no popups/clicks)
+      L.marker(center, { icon: towerIcon, interactive: false }).addTo(
+        layerGroup,
+      );
       bounds.extend(center);
     });
 
@@ -170,14 +201,20 @@ export function MapView({
         iconAnchor: [32, 64],
         popupAnchor: [0, -64],
       });
+      const dronePopupHtml =
+        "<div>" +
+        "<b>" +
+        d.name +
+        "</b><br/>" +
+        "Status: " +
+        (d.status ?? "-") +
+        "<br/>" +
+        "Tower: " +
+        d.towerId +
+        "<br/>" +
+        "</div>";
       const marker = L.marker(pos, { icon: droneIcon, draggable: true })
-        .bindPopup(
-          `<div>
-            <b>${d.name}</b><br/>
-            Status: ${d.status ?? "-"}<br/>
-            Tower: ${d.towerId}<br/>
-          </div>`,
-        )
+        .bindPopup(dronePopupHtml)
         .addTo(layerGroup);
 
       droneMarkersRef.current.set(d.id, marker);
@@ -233,16 +270,26 @@ export function MapView({
         iconAnchor: [12, 12],
         popupAnchor: [0, -12],
       });
+      const waypointPopupHtml =
+        "<div>" +
+        "<b>" +
+        w.name +
+        "</b><br/>" +
+        "Lat: " +
+        w.latitude.toFixed(6) +
+        "<br/>" +
+        "Lon: " +
+        w.longitude.toFixed(6) +
+        "<br/>" +
+        '<a href="/dashboard/waypoints/' +
+        w.id +
+        '/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>' +
+        '<button onclick="window.deleteWaypoint(' +
+        w.id +
+        ')" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>' +
+        "</div>";
       const marker = L.marker(pos, { icon: waypointIcon, draggable: false })
-        .bindPopup(
-          `<div>
-            <b>${w.name}</b><br/>
-            Lat: ${w.latitude.toFixed(6)}<br/>
-            Lon: ${w.longitude.toFixed(6)}<br/>
-            <a href="/dashboard/waypoints/${w.id}/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>
-            <button onclick="window.deleteWaypoint(${w.id})" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>
-          </div>`,
-        )
+        .bindPopup(waypointPopupHtml)
         .addTo(layerGroup);
       bounds.extend(pos);
     });
@@ -252,7 +299,11 @@ export function MapView({
 
       const { lat, lng } = e.latlng;
       const name = prompt(
-        `Create waypoint at (${lat.toFixed(6)}, ${lng.toFixed(6)})?\nEnter waypoint name:`,
+        "Create waypoint at (" +
+          lat.toFixed(6) +
+          ", " +
+          lng.toFixed(6) +
+          ")?\nEnter waypoint name:",
       );
       if (name && name.trim()) {
         const formData = new FormData();
@@ -289,34 +340,46 @@ export function MapView({
     };
 
     // Draw stations markers
-    stations.forEach((s) => {
-      const pos = L.latLng(s.latitude, s.longitude);
-      const stationIcon = L.icon({
-        iconUrl: "/icons/station.svg",
-        iconSize: [28, 28],
-        iconAnchor: [14, 14],
-        popupAnchor: [0, -12],
+    if (stations && stations.length > 0) {
+      stations.forEach((s) => {
+        const pos = L.latLng(s.latitude, s.longitude);
+        const stationIcon = L.icon({
+          iconUrl: "/icons/station.svg",
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+          popupAnchor: [0, -12],
+        });
+        const stationPopupHtml =
+          "<div>" +
+          "<b>" +
+          s.name +
+          "</b><br/>" +
+          "Lat: " +
+          s.latitude.toFixed(6) +
+          "<br/>" +
+          "Lon: " +
+          s.longitude.toFixed(6) +
+          "<br/>" +
+          '<a href="/dashboard/stations/' +
+          s.id +
+          '/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>' +
+          '<button onclick="window.deleteStation(' +
+          s.id +
+          ')" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>' +
+          "</div>";
+        L.marker(pos, { icon: stationIcon })
+          .bindPopup(stationPopupHtml)
+          .addTo(layerGroup);
+        bounds.extend(pos);
       });
-      const marker = L.marker(pos, { icon: stationIcon, draggable: false })
-        .bindPopup(
-          `<div>
-            <b>${s.name}</b><br/>
-            Lat: ${s.latitude.toFixed(6)}<br/>
-            Lon: ${s.longitude.toFixed(6)}<br/>
-            <a href="/dashboard/stations/${s.id}/edit" style="margin-top:4px;margin-right:6px;display:inline-block;padding:2px 8px;border:1px solid #cbd5e1;border-radius:4px;color:#0f172a;text-decoration:none;background:white;">Edit</a>
-            <button onclick="window.deleteStation(${s.id})" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>
-          </div>",
-        )
-        .addTo(layerGroup);
-      bounds.extend(pos);
-    });
+    }
 
     if (!bounds.isValid()) {
       map.setView([0, 0], 2);
     } else {
       map.fitBounds(bounds.pad(0.2));
     }
-  }, [towers, drones, waypoints, isLoading, isCreatingWaypoint]);
+  }, [towers, drones, waypoints, stations, isLoading, isCreatingWaypoint]);
 
   if (isLoading) {
     return (
@@ -331,11 +394,11 @@ export function MapView({
       {showWaypointToggle && (
         <button
           onClick={() => setIsCreatingWaypoint(!isCreatingWaypoint)}
-          className={`px-4 py-2 rounded-md font-medium transition-colors ${
+          className={
             isCreatingWaypoint
-              ? "bg-green-600 text-white hover:bg-green-700"
-              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-          }`}
+              ? "px-4 py-2 rounded-md font-medium transition-colors bg-green-600 text-white hover:bg-green-700"
+              : "px-4 py-2 rounded-md font-medium transition-colors bg-gray-200 text-gray-700 hover:bg-gray-300"
+          }
         >
           {isCreatingWaypoint
             ? "✓ Click map to place waypoint"

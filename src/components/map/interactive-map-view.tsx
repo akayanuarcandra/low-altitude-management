@@ -12,6 +12,7 @@ import {
   isWithinTowerCoverage,
 } from "@/lib/map-utils/geometry";
 import { setupMapLayers } from "./map-setup";
+import TaskModal from "@/components/tasks/task-modal";
 import {
   findPathBidirectionalDijkstra,
   findNearestNodeInCoverage,
@@ -97,6 +98,242 @@ export function InteractiveMapView({
     adj: Map<string, Array<{ to: string; weight: number }>>;
   } | null>(null);
   const roadNetworkFetchedRef = useRef(false);
+
+  // Handler called when TaskListModal reports tasks were started for a drone.
+  // This will attempt to animate each started task on the map using the road network.
+  const handleRunStarted = (started: Array<any> | undefined) => {
+    if (!started || started.length === 0) return;
+    const canAnimate = !!(
+      L &&
+      graph &&
+      graph.nodes &&
+      graph.nodes.size > 0 &&
+      mapRef.current
+    );
+    if (!canAnimate) {
+      // Fallback: graph not ready => persist final positions without animation
+      try {
+        setAlert({
+          type: "error",
+          message:
+            "Road network not ready — persisting task destinations without animation",
+        });
+        setTimeout(() => setAlert(null), 3500);
+      } catch {}
+
+      for (const s of started) {
+        try {
+          const task = s.task || {};
+          const items = s.items || [];
+          const droneId = Number(task.droneId);
+          if (!droneId) continue;
+          const item = items[0];
+          if (!item) continue;
+
+          let targetLat = item.deliveryLatitude
+            ? Number(item.deliveryLatitude)
+            : null;
+          let targetLng = item.deliveryLongitude
+            ? Number(item.deliveryLongitude)
+            : null;
+          if ((!targetLat || !targetLng) && item.itemId) {
+            const wp = waypoints.find((w) => w.id === Number(item.itemId));
+            if (wp) {
+              targetLat = wp.latitude;
+              targetLng = wp.longitude;
+            }
+          }
+          if (!targetLat || !targetLng) continue;
+
+          // update marker immediately if present
+          try {
+            const entry = deployedDronesRef.current.get(droneId);
+            if (entry && entry.marker) {
+              entry.marker.setLatLng([targetLat, targetLng]);
+            }
+          } catch (e) {
+            // ignore
+          }
+
+          try {
+            updateDrone(droneId, {
+              latitude: targetLat,
+              longitude: targetLng,
+              status: "deployed",
+            });
+          } catch (e) {
+            // ignore
+          }
+        } catch (e) {
+          console.error("handleRunStarted fallback error", e);
+        }
+      }
+
+      return;
+    }
+
+    // Group started tasks by droneId so we can render a combined route per drone
+    const droneGroups = new Map<number, Array<{ task: any; item: any }>>();
+    for (const s of started) {
+      try {
+        const task = s.task || {};
+        const items = Array.isArray(s.items) ? s.items : [];
+        const droneId = Number(task.droneId);
+        if (!droneId) continue;
+        for (const it of items) {
+          // push each item as a separate stop
+          if (!droneGroups.has(droneId)) droneGroups.set(droneId, []);
+          droneGroups.get(droneId)!.push({ task, item: it });
+        }
+      } catch (e) {
+        console.error("handleRunStarted grouping error", e);
+      }
+    }
+
+    // For each drone, compute the full concatenated path and display it immediately
+    const polylineMap = new Map<number, any>();
+    const colorPalette = [
+      "#3b82f6",
+      "#ef4444",
+      "#10b981",
+      "#f59e0b",
+      "#8b5cf6",
+      "#06b6d4",
+      "#f97316",
+    ];
+
+    for (const [droneId, stops] of droneGroups.entries()) {
+      try {
+        const entry = deployedDronesRef.current.get(droneId);
+        const droneMarker = entry?.marker;
+        if (!droneMarker) {
+          console.debug("handleRunStarted: no marker for drone", droneId);
+          continue;
+        }
+        const drone = drones.find((d) => d.id === droneId);
+        if (!drone) {
+          console.debug("handleRunStarted: drone metadata not found", droneId);
+          continue;
+        }
+
+        // Build concatenated path coords
+        const fullPathCoords: Array<{ lat: number; lon: number }> = [];
+        let lastLat = droneMarker.getLatLng().lat;
+        let lastLon = droneMarker.getLatLng().lng;
+
+        for (const stop of stops) {
+          let targetLat = stop.item.deliveryLatitude
+            ? Number(stop.item.deliveryLatitude)
+            : null;
+          let targetLng = stop.item.deliveryLongitude
+            ? Number(stop.item.deliveryLongitude)
+            : null;
+          if ((!targetLat || !targetLng) && stop.item.itemId) {
+            const wp = waypoints.find((w) => w.id === Number(stop.item.itemId));
+            if (wp) {
+              targetLat = wp.latitude;
+              targetLng = wp.longitude;
+            }
+          }
+          if (!targetLat || !targetLng) continue;
+
+          const segment = findPathBidirectionalDijkstra(
+            lastLat,
+            lastLon,
+            targetLat,
+            targetLng,
+            graph.nodes,
+            graph.adj,
+          );
+
+          const partial =
+            segment && segment.length > 0
+              ? segment
+              : [{ lat: targetLat, lon: targetLng }];
+
+          // Append partial, avoid duplicate point at junction
+          if (fullPathCoords.length > 0) {
+            const first = partial[0];
+            const last = fullPathCoords[fullPathCoords.length - 1];
+            if (
+              !(
+                Math.abs(first.lat - last.lat) < 1e-9 &&
+                Math.abs(first.lon - last.lon) < 1e-9
+              )
+            ) {
+              fullPathCoords.push(...partial);
+            } else {
+              fullPathCoords.push(...partial.slice(1));
+            }
+          } else {
+            fullPathCoords.push(...partial);
+          }
+
+          const lastPoint = partial[partial.length - 1];
+          lastLat = lastPoint.lat;
+          lastLon = lastPoint.lon;
+        }
+
+        // Draw polyline on map
+        if (fullPathCoords.length === 0) continue;
+        const coords = fullPathCoords.map((p) =>
+          (L as any).latLng(p.lat, p.lon),
+        );
+        // Make the path color purple for all drones
+        const color = "#8b5cf6";
+        const polyline = (L as any)
+          .polyline(coords, { color, weight: 3, opacity: 0.7 })
+          .addTo(mapRef.current as any);
+        polylineMap.set(droneId, polyline);
+
+        // Build WaypointDTO-like array for animation
+        const pathWaypoints = fullPathCoords.map((p, i) => ({
+          id: i,
+          name: `drone-${droneId}-step-${i}`,
+          latitude: p.lat,
+          longitude: p.lon,
+        }));
+        const finalPt = fullPathCoords[fullPathCoords.length - 1];
+        const targetWaypoint = {
+          id:
+            stops[stops.length - 1].item.itemId ??
+            stops[stops.length - 1].task.id,
+          name:
+            stops[stops.length - 1].task.title ??
+            `task-${stops[stops.length - 1].task.id}`,
+          latitude: finalPt.lat,
+          longitude: finalPt.lon,
+        };
+
+        // Animate along the full route (do not await) and remove polyline when done
+        animateDroneMovement(
+          L as typeof import("leaflet"),
+          droneId,
+          drone,
+          droneMarker as import("leaflet").Marker,
+          pathWaypoints,
+          targetWaypoint,
+          {
+            lat: (droneMarker as any).getLatLng().lat,
+            lng: (droneMarker as any).getLatLng().lng,
+          },
+          droneAnimationStateRef,
+          setAlert,
+        )
+          .catch((e) => console.error("animateDroneMovement error", e))
+          .finally(() => {
+            try {
+              const pl = polylineMap.get(droneId);
+              if (pl && mapRef.current) (mapRef.current as any).removeLayer(pl);
+            } catch (e) {
+              // ignore
+            }
+          });
+      } catch (e) {
+        console.error("handleRunStarted per-drone error", e);
+      }
+    }
+  };
 
   // Modal state for inline Task creation
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -934,8 +1171,22 @@ export function InteractiveMapView({
           isAddingStation={isAddingStation}
           setIsAddingStation={setIsAddingStation}
           setAlert={setAlert}
+          onRunStarted={handleRunStarted}
         />
       </div>
+
+      {showTaskModal && (
+        <TaskModal
+          initialDroneId={taskModalDroneId}
+          initialDroneName={
+            inventoryDrones.find((d) => d.id === taskModalDroneId)?.name
+          }
+          onClose={() => {
+            setShowTaskModal(false);
+            setTaskModalDroneId(undefined);
+          }}
+        />
+      )}
     </div>
   );
 }
