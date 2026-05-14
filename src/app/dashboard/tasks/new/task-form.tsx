@@ -85,16 +85,31 @@ export default function TaskForm({
     }
   }, [selectedWaypointId, waypoints, title]);
 
+  // When the category is set to 'return', auto-fill the title and clear other fields.
+  useEffect(() => {
+    try {
+      if (category === "return") {
+        setTitle("Return to Nearby Station");
+        setDescription("");
+        setQuantity(1);
+        setSelectedWaypointId(null);
+      }
+    } catch {
+      // ignore
+    }
+  }, [category]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
-    if (!title.trim()) {
+    if (category !== "return" && !title.trim()) {
       setMessage("Title required");
       return;
     }
 
     const payload: any = {
-      title: title.trim(),
+      // For return tasks we force a standard title; otherwise use provided title
+      title: category === "return" ? "Return to Nearby Station" : title.trim(),
       description: description.trim() || null,
       droneId: initialDroneId ?? null,
       category,
@@ -115,9 +130,9 @@ export default function TaskForm({
         },
       ];
     }
-    if (category === "patrol") {
-      payload.patrolRadiusMeters = 80;
-    }
+      if (category === "patrol") {
+        payload.patrolRadiusMeters = 80;
+      }
 
     try {
       setLoading(true);
@@ -250,6 +265,20 @@ export default function TaskForm({
       {message && (
         <div className="p-2 bg-red-100 text-red-800 rounded">{message}</div>
       )}
+
+      <div>
+        <label className="block text-sm">Category</label>
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value as any)}
+          className="mt-1 block w-full border rounded px-2 py-1"
+        >
+          <option value="delivery">Delivery</option>
+          <option value="patrol">Patrol</option>
+          <option value="return">Return to nearest station</option>
+        </select>
+      </div>
+
       <div>
         <label className="block text-sm">Title</label>
         <Input value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -272,19 +301,6 @@ export default function TaskForm({
           onChange={(e) => setQuantity(parseInt(e.target.value || "1"))}
           className="mt-1 block w-full border rounded px-2 py-1"
         />
-      </div>
-
-      <div>
-        <label className="block text-sm">Category</label>
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value as any)}
-          className="mt-1 block w-full border rounded px-2 py-1"
-        >
-          <option value="delivery">Delivery</option>
-          <option value="patrol">Patrol</option>
-          <option value="return">Return to nearest station</option>
-        </select>
       </div>
 
       {category === "delivery" && (
