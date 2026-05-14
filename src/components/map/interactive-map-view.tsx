@@ -105,6 +105,7 @@ export function InteractiveMapView({
   // Handler called when TaskListModal reports tasks were started for a drone.
   // This will attempt to animate each started task on the map using the road network.
   const handleRunStarted = (started: Array<any> | undefined) => {
+    console.debug("handleRunStarted invoked", { started });
     if (!started || started.length === 0) return;
     const canAnimate = !!(
       L &&
@@ -124,11 +125,12 @@ export function InteractiveMapView({
         setTimeout(() => setAlert(null), 3500);
       } catch {}
 
-      for (const s of started) {
-        try {
-          const task = s.task || {};
-          const items = s.items || [];
-          const droneId = Number(task.droneId);
+        for (const s of started) {
+          try {
+            console.debug("handleRunStarted fallback processing start", { s });
+            const task = s.task || {};
+            const items = s.items || [];
+            const droneId = Number(task.droneId);
           if (!droneId) continue;
           const item = items[0];
           if (!item) continue;

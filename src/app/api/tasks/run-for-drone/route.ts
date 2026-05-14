@@ -72,6 +72,7 @@ export async function POST(req: Request) {
           },
           items: itemsDto,
         });
+        console.debug("/api/tasks/run-for-drone: started task", { taskId: t.id, droneId, items: itemsDto });
       } catch (err) {
         console.error(
           `/api/tasks/run-for-drone: failed to start task ${t.id}`,
@@ -88,6 +89,7 @@ export async function POST(req: Request) {
       // ignore revalidation errors in dev
     }
 
+    console.debug("/api/tasks/run-for-drone: response payload", { started });
     return NextResponse.json({ ok: true, started });
   } catch (err) {
     console.error("/api/tasks/run-for-drone error", err);

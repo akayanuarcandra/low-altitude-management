@@ -262,6 +262,95 @@ export async function createTaskWithItemsFromJSON(body: any) {
     const [res] = await db.insert(tasks).values(insertData).returning();
     const taskId = (res as any).id;
 
+    // Special-case: "return" category -> create a single task item pointing to the
+    // nearest station to the provided droneId. This requires droneId and the drone
+    // to have a valid latitude/longitude. We follow Option A: require droneId.
+    if (body?.category === "return") {
+      // Ensure droneId provided
+      const droneId = body?.droneId !== undefined ? Number(body.droneId) : null;
+      if (!droneId || Number.isNaN(droneId)) {
+        return { ok: false, error: "droneId required for return tasks" };
+      }
+
+      // Fetch drone and validate position
+      const [dr] = await db.select().from(drones).where(eq(drones.id, droneId));
+      if (!dr || !dr.latitude || !dr.longitude) {
+        return { ok: false, error: "drone must have a valid position for return tasks" };
+      }
+
+      // Fetch stations
+      const stationsRows = await db.select().from(stations);
+      if (!stationsRows || stationsRows.length === 0) {
+        return { ok: false, error: "no stations available" };
+      }
+
+      // Small haversine helper (meters)
+      const toRad = (d: number) => (d * Math.PI) / 180;
+      const haversineMeters = (
+        lat1: number,
+        lon1: number,
+        lat2: number,
+        lon2: number,
+      ) => {
+        const R = 6371000; // meters
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(toRad(lat1)) *
+            Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      };
+
+      const droneLat = Number(dr.latitude);
+      const droneLon = Number(dr.longitude);
+      let nearest: any = null;
+      let bestDist = Infinity;
+      for (const s of stationsRows) {
+        const sLat = Number((s as any).latitude);
+        const sLon = Number((s as any).longitude);
+        if (Number.isNaN(sLat) || Number.isNaN(sLon)) continue;
+        const d = haversineMeters(droneLat, droneLon, sLat, sLon);
+        if (d < bestDist) {
+          bestDist = d;
+          nearest = s;
+        }
+      }
+
+      if (!nearest) {
+        console.error("createTaskWithItemsFromJSON: no valid stations found", {
+          body,
+        });
+        return { ok: false, error: "no valid stations found" };
+      }
+
+      // Insert a single TaskItem pointing to nearest station (no itemId, use delivery coords)
+      const insertRes = await db
+        .insert(taskItems)
+        .values({
+          taskId,
+          itemId: null,
+          deliveryLatitude: String((nearest as any).latitude),
+          deliveryLongitude: String((nearest as any).longitude),
+          quantity: body?.quantity ? Number(body.quantity) : 1,
+          sequence: 0,
+        })
+        .returning();
+
+      console.debug("createTaskWithItemsFromJSON: inserted return task item", {
+        taskId,
+        nearest: { id: (nearest as any).id, latitude: (nearest as any).latitude, longitude: (nearest as any).longitude },
+        insertRes,
+      });
+
+      revalidatePath("/dashboard/map");
+      revalidatePath("/dashboard/tasks");
+      return { ok: true, taskId };
+    }
+
     // items: array of { waypointId?, name?, latitude?, longitude?, quantity?, seq?, assignedDroneId? }
     for (const it of items) {
       let itemId: number | null = null;
