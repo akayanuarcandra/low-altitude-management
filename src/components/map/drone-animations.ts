@@ -20,11 +20,12 @@
  * from your interactive map code (see interactive-map-view example).
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { MutableRefObject } from "react";
 import { haversineMeters } from "./map-helpers";
 import type { DroneDTO, WaypointDTO } from "./types";
 import { updateDrone } from "@/app/actions";
-let activeAnimationsCount = 0;
+const activeAnimationsCount = 0;
 
 /**
  * Controller stored per-drone in the shared ref.
@@ -216,30 +217,53 @@ export async function animateDroneMovement(
 
     // If totalDistance is zero (degenerate), fall back to per-segment durations
     if (totalDistance <= 0) {
-      for (let i = 0; i < path.length; i++) {
-        if (cancelled) break;
-        const wp = path[i];
-        const toLat = Number(wp.latitude);
-        const toLng = Number(wp.longitude);
-        if (Number.isNaN(toLat) || Number.isNaN(toLng)) continue;
+    for (let i = 0; i < path.length; i++) {
+      if (cancelled) break;
+      const wp = path[i];
+      const toLat = Number(wp.latitude);
+      const toLng = Number(wp.longitude);
+      if (Number.isNaN(toLat) || Number.isNaN(toLng)) continue;
 
-        const distance = haversineMeters(fromLat, fromLng, toLat, toLng);
-        let duration = Math.max(MIN_DURATION_MS, distance * SPEED_MS_PER_METER);
-        duration = Math.min(duration, MAX_DURATION_MS);
+      const distance = haversineMeters(fromLat, fromLng, toLat, toLng);
+      let duration = Math.max(MIN_DURATION_MS, distance * SPEED_MS_PER_METER);
+      duration = Math.min(duration, MAX_DURATION_MS);
 
-        await animateLatLngRAF(
-          droneMarker,
-          fromLat,
-          fromLng,
-          toLat,
-          toLng,
-          duration,
-          () => cancelled,
-        );
+      await animateLatLngRAF(
+        droneMarker,
+        fromLat,
+        fromLng,
+        toLat,
+        toLng,
+        duration,
+        () => cancelled,
+      );
 
         fromLat = toLat;
         fromLng = toLng;
-      }
+
+        // If this waypoint is a task stop that requests a pause, honor it here.
+        // pauseMs is optional and applied only when present on the waypoint object.
+        if (!cancelled) {
+          try {
+            const arrivedWp: any = path[i];
+            const pauseMs = arrivedWp && typeof arrivedWp.pauseMs === "number" ? Math.max(0, Math.floor(arrivedWp.pauseMs)) : 0;
+            if (pauseMs > 0) {
+              // Cancellable pause: poll cancellation at short intervals so user can stop promptly
+              const poll = 150; // ms
+              let waited = 0;
+              while (!cancelled && waited < pauseMs) {
+                // wait the smaller of remaining time or poll interval
+                const toWait = Math.min(poll, pauseMs - waited);
+                // eslint-disable-next-line no-await-in-loop
+                await new Promise((r) => setTimeout(r, toWait));
+                waited += toWait;
+              }
+            }
+          } catch (e) {
+            // best-effort: ignore pause errors and continue
+          }
+        }
+    }
     } else {
       for (let i = 0; i < path.length; i++) {
         if (cancelled) break;
@@ -268,6 +292,25 @@ export async function animateDroneMovement(
 
         fromLat = toLat;
         fromLng = toLng;
+
+        // Pause at task stops if requested on the waypoint
+        if (!cancelled) {
+          try {
+            const arrivedWp: any = path[i];
+            const pauseMs = arrivedWp && typeof arrivedWp.pauseMs === "number" ? Math.max(0, Math.floor(arrivedWp.pauseMs)) : 0;
+            if (pauseMs > 0) {
+              const poll = 150;
+              let waited = 0;
+              while (!cancelled && waited < pauseMs) {
+                // eslint-disable-next-line no-await-in-loop
+                await new Promise((r) => setTimeout(r, Math.min(poll, pauseMs - waited)));
+                waited += poll;
+              }
+            }
+          } catch (e) {
+            // ignore and continue
+          }
+        }
       }
     }
 

@@ -44,6 +44,9 @@ const PATROL_DEFAULT_RADIUS_METERS = 80; // default patrol radius
 const PATROL_POINT_COUNT = 8; // how many sample points around circle to snap to roads
 const PATROL_MIN_RADIUS_METERS = 20; // minimum allowed radius
 
+// Pause duration at each task stop in milliseconds. Configurable via env var.
+const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 3000);
+
 export function InteractiveMapView({
   towers,
   drones,
@@ -218,6 +221,8 @@ export function InteractiveMapView({
 
         // Build concatenated path coords
         const fullPathCoords: Array<{ lat: number; lon: number }> = [];
+        // Track indices in fullPathCoords that correspond to task stops so we can pause there
+        const stopIndices: number[] = [];
         let lastLat = droneMarker.getLatLng().lat;
         let lastLon = droneMarker.getLatLng().lng;
 
@@ -252,6 +257,7 @@ export function InteractiveMapView({
               : [{ lat: targetLat, lon: targetLng }];
 
           // Append partial, avoid duplicate point at junction
+          const beforeAppendIdx = fullPathCoords.length;
           if (fullPathCoords.length > 0) {
             const first = partial[0];
             const last = fullPathCoords[fullPathCoords.length - 1];
@@ -268,6 +274,10 @@ export function InteractiveMapView({
           } else {
             fullPathCoords.push(...partial);
           }
+
+          // The final coordinate of this partial corresponds to the task stop. Record its index.
+          const stopIndex = fullPathCoords.length - 1;
+          stopIndices.push(stopIndex);
 
           const lastPoint = partial[partial.length - 1];
           lastLat = lastPoint.lat;
@@ -286,13 +296,19 @@ export function InteractiveMapView({
           .addTo(mapRef.current as any);
         polylineMap.set(droneId, polyline);
 
-        // Build WaypointDTO-like array for animation
-        const pathWaypoints = fullPathCoords.map((p, i) => ({
-          id: i,
-          name: `drone-${droneId}-step-${i}`,
-          latitude: p.lat,
-          longitude: p.lon,
-        }));
+        // Build WaypointDTO-like array for animation, marking stop waypoints with pauseMs
+        const pathWaypoints = fullPathCoords.map((p, i) => {
+          const wp: any = {
+            id: i,
+            name: `drone-${droneId}-step-${i}`,
+            latitude: p.lat,
+            longitude: p.lon,
+          };
+          if (stopIndices.includes(i)) {
+            wp.pauseMs = TASK_STOP_PAUSE_MS;
+          }
+          return wp;
+        });
         const finalPt = fullPathCoords[fullPathCoords.length - 1];
         const targetWaypoint = {
           id:
