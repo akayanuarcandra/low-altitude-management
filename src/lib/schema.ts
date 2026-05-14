@@ -67,6 +67,18 @@ export const stations = pgTable("Station", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const precomputedRoutes = pgTable("PrecomputedRoute", {
+  id: serial("id").primaryKey(),
+  droneId: integer("drone_id").notNull(),
+  stopsHash: text("stops_hash"),
+  stopsJson: text("stops_json"),
+  startLat: text("start_lat"),
+  startLon: text("start_lon"),
+  routeJson: text("route_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at"),
+});
+
 // TaskItem table uses existing DB columns: item_id, delivery_latitude, delivery_longitude, sequence
 export const taskItems = pgTable(
   "TaskItem",
