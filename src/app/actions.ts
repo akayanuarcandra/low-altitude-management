@@ -13,20 +13,38 @@ import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 export async function createTask(formData: FormData) {
+  // Normalize form input and delegate to createTaskWithItemsFromJSON so all
+  // task creation flows share the same validation and fallback behavior.
   const title = (formData.get("title") as string)?.trim();
   const description =
     (formData.get("description") as string | null)?.trim() || null;
   const quantityRaw = formData.get("quantity") as string | null;
   const quantity = quantityRaw ? parseInt(quantityRaw, 10) : null;
+  const itemsRaw = formData.get("items") as string | null;
+  const droneIdRaw = formData.get("droneId") as string | null;
 
-  if (!title) return;
-  if (quantity !== null && (Number.isNaN(quantity) || quantity < 0)) return;
+  const body: any = { title, description };
+  if (quantity !== null && !(Number.isNaN(quantity))) body.quantity = quantity;
+  if (itemsRaw) body.items = (() => {
+    try {
+      return JSON.parse(itemsRaw as string);
+    } catch {
+      return [];
+    }
+  })();
+  if (droneIdRaw) {
+    const n = Number(droneIdRaw);
+    if (!Number.isNaN(n)) body.droneId = n;
+  }
 
-  await db.insert(tasks).values({
-    title,
-    description,
-    quantity: quantity ?? 1,
-  });
+  // Delegate to the JSON handler which implements the defensive fallback
+  // (auto-create return TaskItem when droneId present but no items).
+  try {
+    await createTaskWithItemsFromJSON(body);
+  } catch (e) {
+    // Best-effort: log and continue
+    console.error("createTask: createTaskWithItemsFromJSON failed", e);
+  }
   revalidatePath("/");
 }
 
