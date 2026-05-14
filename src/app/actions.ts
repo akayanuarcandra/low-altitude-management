@@ -265,7 +265,11 @@ export async function createTaskWithItemsFromJSON(body: any) {
     // Special-case: "return" category -> create a single task item pointing to the
     // nearest station to the provided droneId. This requires droneId and the drone
     // to have a valid latitude/longitude. We follow Option A: require droneId.
-    if (body?.category === "return") {
+    // Additionally: if the caller provided a droneId but did not supply any items,
+    // automatically create a return-to-nearest-station TaskItem so the drone can be
+    // instructed to move. This is a defensive fallback for UI callers that omit
+    // the target.
+    if (body?.category === "return" || ((Array.isArray(items) && items.length === 0) && body?.droneId)) {
       // Ensure droneId provided
       const droneId = body?.droneId !== undefined ? Number(body.droneId) : null;
       if (!droneId || Number.isNaN(droneId)) {
@@ -340,7 +344,7 @@ export async function createTaskWithItemsFromJSON(body: any) {
         })
         .returning();
 
-      console.debug("createTaskWithItemsFromJSON: inserted return task item", {
+      console.debug("createTaskWithItemsFromJSON: inserted return task item (auto)", {
         taskId,
         nearest: { id: (nearest as any).id, latitude: (nearest as any).latitude, longitude: (nearest as any).longitude },
         insertRes,
