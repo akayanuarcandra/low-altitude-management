@@ -49,6 +49,8 @@ export async function GET(
       title: t.title,
       description: t.description,
       quantity: Number(t.quantity),
+      patrolRadiusMeters: t.patrolRadiusMeters ?? null,
+      patrolDurationSeconds: t.patrolDurationSeconds ?? null,
       droneId: t.droneId ?? null,
       status: t.status,
       createdAt: t.createdAt?.toISOString?.() ?? t.createdAt,
@@ -120,6 +122,16 @@ export async function PUT(
     if (body.description !== undefined)
       updateData.description =
         body.description === null ? null : String(body.description);
+    if (body.patrolRadiusMeters !== undefined) {
+      const n = Number(body.patrolRadiusMeters);
+      if (!Number.isNaN(n)) updateData.patrolRadiusMeters = n;
+      else updateData.patrolRadiusMeters = null;
+    }
+    if (body.patrolDurationSeconds !== undefined) {
+      const n = Number(body.patrolDurationSeconds);
+      if (!Number.isNaN(n)) updateData.patrolDurationSeconds = n;
+      else updateData.patrolDurationSeconds = null;
+    }
     if (body.quantity !== undefined) {
       const q = Number(body.quantity);
       if (!Number.isNaN(q)) updateData.quantity = q;

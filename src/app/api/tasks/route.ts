@@ -9,6 +9,10 @@ export async function POST(req: Request) {
     if (body.description) form.append("description", String(body.description));
     if (body.items) form.append("items", JSON.stringify(body.items));
     if (body.droneId) form.append("droneId", String(body.droneId));
+    if (body.patrolRadiusMeters !== undefined)
+      form.append("patrolRadiusMeters", String(body.patrolRadiusMeters));
+    if (body.patrolDurationSeconds !== undefined)
+      form.append("patrolDurationSeconds", String(body.patrolDurationSeconds));
 
     const res = await createTaskWithItems(form);
     return NextResponse.json(res);

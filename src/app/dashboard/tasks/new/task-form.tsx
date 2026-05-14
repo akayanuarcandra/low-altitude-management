@@ -20,6 +20,8 @@ export default function TaskForm({
   const [category, setCategory] = useState<"delivery" | "return">(
     "delivery",
   );
+  // add patrol category
+  type CategoryType = "delivery" | "return" | "patrol";
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -32,8 +34,9 @@ export default function TaskForm({
   );
   // Task-level quantity (displayed below description)
   const [quantity, setQuantity] = useState<number>(1);
-  // patrol removed: keep patrolRadius state unused to preserve DB values if present
+  // patrol state
   const [patrolRadiusMeters, setPatrolRadiusMeters] = useState<number>(80);
+  const [patrolDurationSeconds, setPatrolDurationSeconds] = useState<number>(300);
 
   // Whether this form is editing an existing task
   const isEditing = Boolean(
@@ -43,21 +46,25 @@ export default function TaskForm({
   // Prefill from initialTask when editing
   useEffect(() => {
     try {
-      if (initialTask && initialTask.task) {
-        const t = initialTask.task;
-        setTitle(t.title || "");
-        setDescription(t.description || "");
-        setQuantity(Number(t.quantity) || 1);
-        if (t?.patrolRadiusMeters !== undefined && t?.patrolRadiusMeters !== null) {
-          const n = Number(t.patrolRadiusMeters);
-          if (!Number.isNaN(n)) setPatrolRadiusMeters(n);
+        if (initialTask && initialTask.task) {
+          const t = initialTask.task;
+          setTitle(t.title || "");
+          setDescription(t.description || "");
+          setQuantity(Number(t.quantity) || 1);
+          if (t?.patrolRadiusMeters !== undefined && t?.patrolRadiusMeters !== null) {
+            const n = Number(t.patrolRadiusMeters);
+            if (!Number.isNaN(n)) setPatrolRadiusMeters(n);
+          }
+          if (t?.patrolDurationSeconds !== undefined && t?.patrolDurationSeconds !== null) {
+            const n2 = Number(t.patrolDurationSeconds);
+            if (!Number.isNaN(n2)) setPatrolDurationSeconds(n2);
+          }
+          if (Array.isArray(initialTask.items) && initialTask.items.length > 0) {
+            setCategory("delivery");
+            const it = initialTask.items[0];
+            if (it && it.itemId) setSelectedWaypointId(Number(it.itemId));
+          }
         }
-        if (Array.isArray(initialTask.items) && initialTask.items.length > 0) {
-          setCategory("delivery");
-          const it = initialTask.items[0];
-          if (it && it.itemId) setSelectedWaypointId(Number(it.itemId));
-        }
-      }
     } catch {
       // ignore
     }
@@ -100,6 +107,10 @@ export default function TaskForm({
         setQuantity(1);
         setSelectedWaypointId(null);
       }
+      if (category === "patrol") {
+        // default title for patrol
+        if (title.trim() === "") setTitle("Patrol Area");
+      }
     } catch {
       // ignore
     }
@@ -141,7 +152,31 @@ export default function TaskForm({
         },
       ];
     }
-    // patrol removed: don't include patrolRadiusMeters in payload
+    if (category === "patrol") {
+      // Validation
+      if (!title.trim()) {
+        setMessage("Title required");
+        return;
+      }
+      if (!patrolRadiusMeters || patrolRadiusMeters <= 0) {
+        setMessage("Radius required");
+        return;
+      }
+      if (patrolRadiusMeters > 10000) {
+        setMessage("Radius must be <= 10000 meters");
+        return;
+      }
+      if (!patrolDurationSeconds || patrolDurationSeconds <= 0) {
+        setMessage("Duration required");
+        return;
+      }
+      if (patrolDurationSeconds > 3600) {
+        setMessage("Duration must be <= 3600 seconds");
+        return;
+      }
+      payload.patrolRadiusMeters = Number(patrolRadiusMeters);
+      payload.patrolDurationSeconds = Number(patrolDurationSeconds);
+    }
 
     try {
       setLoading(true);
@@ -285,6 +320,7 @@ export default function TaskForm({
         >
           <option value="delivery">Delivery</option>
           <option value="return">Return to nearest station</option>
+          <option value="patrol">Patrol</option>
         </select>
       </div>
 
@@ -333,6 +369,39 @@ export default function TaskForm({
                 </option>
               ))}
             </select>
+          </div>
+        </>
+      )}
+
+      {category === "patrol" && (
+        <>
+          <div>
+            <label className="block text-sm">Title</label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="block text-sm">Radius (meters)</label>
+            <input
+              type="number"
+              min={1}
+              max={10000}
+              value={patrolRadiusMeters}
+              onChange={(e) => setPatrolRadiusMeters(parseInt(e.target.value || "0"))}
+              className="mt-1 block w-full border rounded px-2 py-1"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm">Duration (seconds)</label>
+            <input
+              type="number"
+              min={1}
+              max={3600}
+              value={patrolDurationSeconds}
+              onChange={(e) => setPatrolDurationSeconds(parseInt(e.target.value || "0"))}
+              className="mt-1 block w-full border rounded px-2 py-1"
+            />
           </div>
         </>
       )}

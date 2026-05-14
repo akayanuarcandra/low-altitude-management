@@ -14,6 +14,9 @@ export const tasks = pgTable("Task", {
   title: text("title").notNull(),
   description: text("description"),
   quantity: integer("quantity").notNull().default(1),
+  // Patrol-specific fields
+  patrolRadiusMeters: integer("patrol_radius_meters"),
+  patrolDurationSeconds: integer("patrol_duration_seconds"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   droneId: integer("drone_id"),
   status: text("status").notNull().default("pending"),

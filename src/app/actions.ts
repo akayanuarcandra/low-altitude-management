@@ -261,6 +261,15 @@ export async function createTaskWithItemsFromJSON(body: any) {
 
   // Create task; include quantity if provided on body
   const insertData: any = { title, description };
+  // Accept patrol fields if provided
+  if (body?.patrolRadiusMeters !== undefined) {
+    const n = Number(body.patrolRadiusMeters);
+    if (!Number.isNaN(n)) insertData.patrolRadiusMeters = n;
+  }
+  if (body?.patrolDurationSeconds !== undefined) {
+    const n = Number(body.patrolDurationSeconds);
+    if (!Number.isNaN(n)) insertData.patrolDurationSeconds = n;
+  }
   // Accept quantity as number or numeric string
   if (body?.quantity !== undefined) {
     const q = Number(body.quantity);
