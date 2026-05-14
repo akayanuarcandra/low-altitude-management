@@ -166,8 +166,41 @@ export default function TaskListModal({
       }
 
       if (data && data.ok) {
-        onRunStarted(data.started || []);
-        closeWithAnim();
+        console.debug("TaskListModal: runAll response", data);
+        const started = data.started || [];
+
+        // If started tasks exist but some have no items, show a helpful message
+        const tasksWithNoItems: Array<{ taskId: number; title?: string }> = [];
+        for (const s of started) {
+          try {
+            const task = s.task || {};
+            const items = Array.isArray(s.items) ? s.items : [];
+            if (!items || items.length === 0) {
+              tasksWithNoItems.push({ taskId: Number(task.id), title: task.title });
+            }
+          } catch (err) {
+            // ignore
+          }
+        }
+
+        if (started.length === 0) {
+          alert("No tasks were started for this drone. Ensure tasks are pending and assigned to this drone.");
+        } else if (tasksWithNoItems.length > 0) {
+          console.debug("TaskListModal: some started tasks have no items", tasksWithNoItems);
+          const names = tasksWithNoItems
+            .map((t) => (t.title ? `${t.title} (#${t.taskId})` : `#${t.taskId}`))
+            .join(", ");
+          alert(
+            `Started ${started.length} task(s). However the following tasks had no delivery stops and the drone will not move: ${names}. ` +
+              "Check that these tasks include a target (waypoint/station) or are created with category 'return'.",
+          );
+          // Still notify parent so client-side run handling can attempt to process any tasks that do have items
+          onRunStarted(started);
+          closeWithAnim();
+        } else {
+          onRunStarted(started);
+          closeWithAnim();
+        }
       } else {
         alert("Failed to start tasks: " + (data?.error || "unknown"));
       }
