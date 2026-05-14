@@ -30,8 +30,7 @@ declare global {
       droneId: number,
       skipConfirm?: boolean,
     ) => Promise<{ ok: boolean; message?: string }>;
-    // Start a patrol around the drone's current position (radiusMeters optional)
-    startPatrol?: (droneId: number, radiusMeters?: number) => Promise<void>;
+    // (Patrol removed)
   }
 }
 let L: typeof import("leaflet") | null = null;
@@ -39,10 +38,7 @@ let markerIcon2x: { src?: string } | null = null;
 let markerIcon: { src?: string } | null = null;
 let markerShadow: { src?: string } | null = null;
 
-// Patrol configuration (tweakable)
-const PATROL_DEFAULT_RADIUS_METERS = 80; // default patrol radius
-const PATROL_POINT_COUNT = 8; // how many sample points around circle to snap to roads
-const PATROL_MIN_RADIUS_METERS = 20; // minimum allowed radius
+// (Patrol feature removed)
 
 // Pause duration at each task stop in milliseconds. Configurable via env var.
 const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 3000);
@@ -91,10 +87,9 @@ export function InteractiveMapView({
     Map<number, { animating: boolean; cancel: () => void }>
   >(new Map());
 
-  // Patrol controllers: manage ongoing patrol loops per-drone.
-  const patrolControllersRef = useRef<
-    Map<number, { running: boolean; cancel: () => void }>
-  >(new Map());
+  // (Patrol controllers removed)
+
+    
 
   const [graph, setGraph] = useState<{
     nodes: Map<string, { lat: number; lon: number; inCoverage: boolean }>;
@@ -185,6 +180,7 @@ export function InteractiveMapView({
         const items = Array.isArray(s.items) ? s.items : [];
         const droneId = Number(task.droneId);
         if (!droneId) continue;
+
         for (const it of items) {
           // push each item as a separate stop
           if (!droneGroups.has(droneId)) droneGroups.set(droneId, []);
@@ -766,28 +762,12 @@ export function InteractiveMapView({
       if (!drone) return { ok: false, message: "Drone not found" };
 
       // Inspect current controllers
-      const patrolCtrl = patrolControllersRef.current.get(droneId);
       const animCtrl = droneAnimationStateRef.current.get(droneId);
-      const isPatrolling = !!(patrolCtrl && patrolCtrl.running);
       const isAnimating = !!(animCtrl && animCtrl.animating);
 
       // If nothing is running, return status
-      if (!isPatrolling && !isAnimating) {
+      if (!isAnimating) {
         return { ok: false, message: `${drone.name} is not currently moving` };
-      }
-
-      // Cancel patrol first (if any)
-      if (isPatrolling) {
-        try {
-          patrolCtrl!.cancel();
-        } catch {
-          // ignore cancellation errors
-        }
-        try {
-          patrolControllersRef.current.delete(droneId);
-        } catch {
-          // ignore
-        }
       }
 
       // Cancel animation controller (if any). Set suppression flag so the animation
@@ -838,246 +818,9 @@ export function InteractiveMapView({
           message: `Failed to persist ${drone.name} position`,
         };
       } finally {
-        // Final cleanup: ensure both controllers removed
+        // Final cleanup: ensure animation controller removed
         try {
           droneAnimationStateRef.current.delete(droneId);
-        } catch {}
-        try {
-          patrolControllersRef.current.delete(droneId);
-        } catch {}
-      }
-    };
-
-    // Start a patrol loop around the drone's current position using road network nodes.
-    // radiusMeters optional; defaults to PATROL_DEFAULT_RADIUS_METERS.
-    window.startPatrol = async (droneId: number, radiusMeters?: number) => {
-      const drone = drones.find((d) => d.id === droneId);
-      if (!drone) {
-        window.alert("Drone not found for patrol");
-        return;
-      }
-
-      if (!graph || graph.nodes.size === 0) {
-        window.alert(
-          "Road network is not loaded yet. Please wait a moment and try again.",
-        );
-        return;
-      }
-
-      const entry = deployedDronesRef.current.get(droneId);
-      const marker = entry?.marker;
-      if (!marker) {
-        window.alert("Drone marker not available on the map");
-        return;
-      }
-
-      const center = marker.getLatLng();
-      const radius =
-        typeof radiusMeters === "number"
-          ? radiusMeters
-          : PATROL_DEFAULT_RADIUS_METERS;
-      if (radius < PATROL_MIN_RADIUS_METERS) {
-        window.alert(
-          `Patrol radius must be at least ${PATROL_MIN_RADIUS_METERS} meters`,
-        );
-        return;
-      }
-
-      // Find a tower that can fully contain the patrol circle.
-      let assignedTower: TowerDTO | null = null;
-      for (const tower of towers) {
-        const distToTower = haversineMeters(
-          center.lat,
-          center.lng,
-          tower.latitude,
-          tower.longitude,
-        );
-        if (distToTower + radius <= tower.rangeMeters) {
-          assignedTower = tower;
-          break;
-        }
-      }
-
-      if (!assignedTower) {
-        window.alert(
-          "No tower can contain the requested patrol area. Reduce radius or move drone closer to a tower center.",
-        );
-        return;
-      }
-
-      // Sample points around the circle and snap each to nearest road network node within coverage
-      const sampledNodes: Array<{ lat: number; lon: number; key: string }> = [];
-      for (let i = 0; i < PATROL_POINT_COUNT; i++) {
-        const bearing = (360 * i) / PATROL_POINT_COUNT;
-        const dest = destinationLatLng(center.lat, center.lng, bearing, radius);
-        // Use the helper to find nearest node in coverage from drone-flight
-        const nearest = findNearestNodeInCoverage(
-          dest.latitude,
-          dest.longitude,
-          graph.nodes,
-        );
-        if (nearest && nearest.node) {
-          // ensure node is within assigned tower coverage as a safety check
-          const dToTower = haversineMeters(
-            nearest.node.lat,
-            nearest.node.lon,
-            assignedTower.latitude,
-            assignedTower.longitude,
-          );
-          if (dToTower <= assignedTower.rangeMeters) {
-            sampledNodes.push({
-              lat: nearest.node.lat,
-              lon: nearest.node.lon,
-              key: nearest.nodeKey,
-            });
-          } else {
-            // try to shrink radius slightly? for now, abort with message
-            window.alert(
-              "One of the generated patrol points cannot be anchored on roads inside the tower coverage. Try a smaller radius.",
-            );
-            return;
-          }
-        } else {
-          window.alert(
-            "Could not find a nearby road node for a patrol sample point. Reduce radius or ensure road data is available.",
-          );
-          return;
-        }
-      }
-
-      // Deduplicate nodes by key while preserving order
-      const uniqueNodeKeys = new Set<string>();
-      const uniqueNodes: { lat: number; lon: number; key: string }[] = [];
-      for (const n of sampledNodes) {
-        if (!uniqueNodeKeys.has(n.key)) {
-          uniqueNodeKeys.add(n.key);
-          uniqueNodes.push(n);
-        }
-      }
-
-      if (uniqueNodes.length < 2) {
-        window.alert(
-          "Not enough unique road nodes for patrol. Try increasing the radius slightly.",
-        );
-        return;
-      }
-
-      // Build an ordered full path that connects successive sampled nodes using graph pathfinding
-      const fullPathCoords: { lat: number; lon: number }[] = [];
-      for (let i = 0; i < uniqueNodes.length; i++) {
-        const a = uniqueNodes[i];
-        const b = uniqueNodes[(i + 1) % uniqueNodes.length]; // loop back to start
-        const partial = findPathBidirectionalDijkstra(
-          a.lat,
-          a.lon,
-          b.lat,
-          b.lon,
-          graph.nodes,
-          graph.adj,
-        );
-        if (partial.length === 0) {
-          window.alert(
-            "Failed to compute a road path between patrol points. Try a different radius or location.",
-          );
-          return;
-        }
-        // Append partial path - avoid duplicating the first node if already present
-        if (
-          fullPathCoords.length > 0 &&
-          fullPathCoords[fullPathCoords.length - 1].lat === partial[0].lat &&
-          fullPathCoords[fullPathCoords.length - 1].lon === partial[0].lon
-        ) {
-          fullPathCoords.push(...partial.slice(1));
-        } else {
-          fullPathCoords.push(...partial);
-        }
-      }
-
-      // Convert fullPathCoords to WaypointDTO array expected by animateDroneMovement
-      const patrolWaypoints: WaypointDTO[] = fullPathCoords.map((p, idx) => ({
-        id: idx,
-        name: `patrol-node-${idx}`,
-        latitude: p.lat,
-        longitude: p.lon,
-      }));
-
-      // Setup patrol controller
-      let running = true;
-      const controller = {
-        running: true,
-        cancel: () => {
-          running = false;
-          controller.running = false;
-          // cancel any in-flight animation controller too
-          const animCtrl = droneAnimationStateRef.current.get(droneId);
-          if (animCtrl && animCtrl.cancel) {
-            try {
-              animCtrl.cancel();
-            } catch {}
-          }
-        },
-      };
-      patrolControllersRef.current.set(droneId, controller);
-
-      // Loop patrol: traverse fullPath once per cycle, then repeat until canceled
-      try {
-        while (running) {
-          // Compute current marker position as start
-          const currentMarker = deployedDronesRef.current.get(droneId)?.marker;
-          if (!currentMarker) break;
-          const curPos = currentMarker.getLatLng();
-
-          // If the first waypoint in patrolWaypoints is not close to current position, prepend a short path to the nearest patrol node
-          const firstWp = patrolWaypoints[0];
-          const prePath = findPathBidirectionalDijkstra(
-            curPos.lat,
-            curPos.lng,
-            firstWp.latitude,
-            firstWp.longitude,
-            graph.nodes,
-            graph.adj,
-          );
-          const composedWaypoints: WaypointDTO[] = [];
-          if (prePath.length > 0) {
-            composedWaypoints.push(
-              ...prePath.map((p, i) => ({
-                id: i,
-                name: `prefill-${i}`,
-                latitude: p.lat,
-                longitude: p.lon,
-              })),
-            );
-          }
-          const offset = composedWaypoints.length;
-          composedWaypoints.push(
-            ...patrolWaypoints.map((p, i) => ({
-              id: offset + i,
-              name: p.name,
-              latitude: p.latitude,
-              longitude: p.longitude,
-            })),
-          );
-
-          // Use animateDroneMovement to traverse the composed route
-          await animateDroneMovement(
-            L as typeof import("leaflet"),
-            droneId,
-            drone,
-            currentMarker as import("leaflet").Marker,
-            composedWaypoints,
-            composedWaypoints[composedWaypoints.length - 1],
-            { lat: curPos.lat, lng: curPos.lng },
-            droneAnimationStateRef,
-            setAlert,
-          );
-
-          if (!controller.running) break;
-          // slight pause between cycles
-          await new Promise((r) => setTimeout(r, 500));
-        }
-      } finally {
-        try {
-          patrolControllersRef.current.delete(droneId);
         } catch {}
       }
     };

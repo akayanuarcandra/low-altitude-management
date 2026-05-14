@@ -376,7 +376,7 @@ export async function animateDroneMovement(
         }
         // Emit a 'drone-animation-end' event with details so UI can react immediately.
         try {
-          if (
+        if (
             typeof window !== "undefined" &&
             typeof CustomEvent !== "undefined"
           ) {

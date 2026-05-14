@@ -182,27 +182,22 @@ export function MapControls({
                           const statusStr = (drone.status || "")
                             .toString()
                             .toLowerCase();
-                          let stateLabel = "Deployed";
-                          if (statusStr.includes("patrol")) {
-                            stateLabel = "Patrolling";
-                          } else if (isAnimating) {
-                            stateLabel = "Flying";
-                          } else if (
-                            statusStr.includes("idle") ||
-                            statusStr.includes("inventory") ||
-                            !drone.latitude ||
-                            !drone.longitude
-                          ) {
-                            stateLabel = "Idling";
-                          } else {
-                            stateLabel = "Deployed";
-                          }
+                           let stateLabel = "Deployed";
+                           if (isAnimating) {
+                             stateLabel = "Flying";
+                           } else if (
+                             statusStr.includes("idle") ||
+                             statusStr.includes("inventory") ||
+                             !drone.latitude ||
+                             !drone.longitude
+                           ) {
+                             stateLabel = "Idling";
+                           } else {
+                             stateLabel = "Deployed";
+                           }
 
                           // If actively flying or patrolling, offer stop action
-                          if (
-                            stateLabel === "Flying" ||
-                            stateLabel === "Patrolling"
-                          ) {
+                           if (stateLabel === "Flying") {
                             // Call centralized stop handler and skip its internal confirmation
                             // to avoid double/triple prompts. The central handler will
                             // handle cancelling patrols/animations and persisting position.
@@ -243,13 +238,12 @@ export function MapControls({
                         }
                       }}
                     >
-                      {(() => {
+                    {(() => {
                         const isAnimatingLocal =
                           typeof window !== "undefined"
                             ? (window as any)?.isDroneAnimating?.(drone.id)
                             : false;
                         const s = (drone.status || "").toString().toLowerCase();
-                        if (s.includes("patrol")) return "Patrolling";
                         if (isAnimatingLocal) return "Flying";
                         if (
                           s.includes("idle") ||

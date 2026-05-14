@@ -17,7 +17,7 @@ export default function TaskForm({
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<"delivery" | "patrol" | "return">(
+  const [category, setCategory] = useState<"delivery" | "return">(
     "delivery",
   );
   const [loading, setLoading] = useState(false);
@@ -32,6 +32,8 @@ export default function TaskForm({
   );
   // Task-level quantity (displayed below description)
   const [quantity, setQuantity] = useState<number>(1);
+  // patrol removed: keep patrolRadius state unused to preserve DB values if present
+  const [patrolRadiusMeters, setPatrolRadiusMeters] = useState<number>(80);
 
   // Whether this form is editing an existing task
   const isEditing = Boolean(
@@ -46,6 +48,10 @@ export default function TaskForm({
         setTitle(t.title || "");
         setDescription(t.description || "");
         setQuantity(Number(t.quantity) || 1);
+        if (t?.patrolRadiusMeters !== undefined && t?.patrolRadiusMeters !== null) {
+          const n = Number(t.patrolRadiusMeters);
+          if (!Number.isNaN(n)) setPatrolRadiusMeters(n);
+        }
         if (Array.isArray(initialTask.items) && initialTask.items.length > 0) {
           setCategory("delivery");
           const it = initialTask.items[0];
@@ -99,6 +105,8 @@ export default function TaskForm({
     }
   }, [category]);
 
+  // Patrol category removed - no special handling required here
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
@@ -110,11 +118,14 @@ export default function TaskForm({
     const payload: any = {
       // For return tasks we force a standard title; otherwise use provided title
       title: category === "return" ? "Return to Nearby Station" : title.trim(),
-      description: description.trim() || null,
+      // description only relevant for delivery tasks
+      description: category === "delivery" ? description.trim() || null : null,
       droneId: initialDroneId ?? null,
       category,
-      quantity: Number(quantity) || 1,
     };
+
+    // include quantity only for delivery tasks (patrol/return don't use it)
+    if (category === "delivery") payload.quantity = Number(quantity) || 1;
 
     if (category === "delivery") {
       if (!selectedWaypointId) {
@@ -130,9 +141,7 @@ export default function TaskForm({
         },
       ];
     }
-      if (category === "patrol") {
-        payload.patrolRadiusMeters = 80;
-      }
+    // patrol removed: don't include patrolRadiusMeters in payload
 
     try {
       setLoading(true);
@@ -202,6 +211,7 @@ export default function TaskForm({
           setDescription("");
           setSelectedWaypointId(null);
           setQuantity(1);
+          setPatrolRadiusMeters(80);
           const createdId = (data as any).taskId ?? (data as any).id ?? null;
           if (onSuccess) onSuccess(createdId);
 
@@ -274,56 +284,60 @@ export default function TaskForm({
           className="mt-1 block w-full border rounded px-2 py-1"
         >
           <option value="delivery">Delivery</option>
-          <option value="patrol">Patrol</option>
           <option value="return">Return to nearest station</option>
         </select>
       </div>
 
-      <div>
-        <label className="block text-sm">Title</label>
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-      </div>
-      <div>
-        <label className="block text-sm">Description</label>
-        <textarea
-          className="w-full border rounded p-2"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm">Quantity</label>
-        <input
-          type="number"
-          min={1}
-          value={quantity}
-          onChange={(e) => setQuantity(parseInt(e.target.value || "1"))}
-          className="mt-1 block w-full border rounded px-2 py-1"
-        />
-      </div>
-
       {category === "delivery" && (
-        <div className="mt-2">
-          <label className="block text-sm">Target</label>
-          <select
-            value={selectedWaypointId ?? ""}
-            onChange={(e) =>
-              setSelectedWaypointId(
-                e.target.value ? parseInt(e.target.value) : null,
-              )
-            }
-            className="mt-1 block w-full border rounded px-2 py-1"
-          >
-            <option value="">Select a waypoint...</option>
-            {waypoints.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name} — {w.latitude.toFixed(6)}, {w.longitude.toFixed(6)}
-              </option>
-            ))}
-          </select>
-        </div>
+        <>
+          <div>
+            <label className="block text-sm">Title</label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="block text-sm">Description</label>
+            <textarea
+              className="w-full border rounded p-2"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm">Quantity</label>
+            <input
+              type="number"
+              min={1}
+              value={quantity}
+              onChange={(e) => setQuantity(parseInt(e.target.value || "1"))}
+              className="mt-1 block w-full border rounded px-2 py-1"
+            />
+          </div>
+
+          <div className="mt-2">
+            <label className="block text-sm">Target</label>
+            <select
+              value={selectedWaypointId ?? ""}
+              onChange={(e) =>
+                setSelectedWaypointId(
+                  e.target.value ? parseInt(e.target.value) : null,
+                )
+              }
+              className="mt-1 block w-full border rounded px-2 py-1"
+            >
+              <option value="">Select a waypoint...</option>
+              {waypoints.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name} — {w.latitude.toFixed(6)}, {w.longitude.toFixed(6)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
       )}
+
+      {/* Patrol category removed */}
 
       <div className="flex gap-2">
         <Button type="submit" disabled={loading}>
