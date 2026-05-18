@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { updateDrone, createWaypoint, createStation } from "@/app/actions";
 import { Card, CardContent } from "@/components/ui/card";
 import "leaflet/dist/leaflet.css";
@@ -43,19 +44,20 @@ let markerShadow: { src?: string } | null = null;
 // Pause duration at each task stop in milliseconds. Configurable via env var.
 const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 3000);
 
-export function InteractiveMapView({
+  export function InteractiveMapView({
   towers,
   drones,
   waypoints,
   stations,
   inventoryDrones,
-}: {
+  }: {
   towers: TowerDTO[];
   drones: DroneDTO[];
   waypoints: WaypointDTO[];
   stations: StationDTO[];
   inventoryDrones: DroneDTO[];
-}) {
+  }) {
+    const router = useRouter();
   // Leaflet map reference (typed)
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -537,6 +539,27 @@ export function InteractiveMapView({
           status: "deployed",
         });
 
+        // Immediately update UI: refresh server props and also update marker locally
+        try {
+          router.refresh();
+        } catch (e) {
+          console.error("router.refresh failed", e);
+        }
+
+        // Local marker update: ensure deployedDronesRef updated so map shows drone without reload
+        try {
+          const entry = deployedDronesRef.current.get(selectedInventoryDrone);
+          if (entry && entry.marker) {
+            entry.marker.setLatLng([Number(station.latitude), Number(station.longitude)]);
+            // update popup content if present
+            try {
+              entry.marker.setPopupContent(entry.marker.getPopup ? entry.marker.getPopup().getContent() : null);
+            } catch {}
+          }
+        } catch (e) {
+          // ignore local update failures
+        }
+
         setAlert({
           type: "success",
           message: `${droneToPlace.name} deployed successfully at station "${station.name}"!`,
@@ -666,6 +689,25 @@ export function InteractiveMapView({
         longitude: Number(matchedStation.longitude),
         status: "deployed",
       });
+
+      // Refresh server props and update marker locally for instant feedback.
+      try {
+        router.refresh();
+      } catch (e) {
+        console.error("router.refresh failed", e);
+      }
+
+      try {
+        const entry = deployedDronesRef.current.get(selectedInventoryDrone);
+        if (entry && entry.marker) {
+          entry.marker.setLatLng([Number(matchedStation.latitude), Number(matchedStation.longitude)]);
+          try {
+            entry.marker.setPopupContent(entry.marker.getPopup ? entry.marker.getPopup().getContent() : null);
+          } catch {}
+        }
+      } catch (e) {
+        // ignore
+      }
 
       setAlert({
         type: "success",
