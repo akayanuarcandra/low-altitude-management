@@ -252,12 +252,37 @@ export function setupMapLayers(
         iconAnchor: [14, 14],
         popupAnchor: [0, -12],
       });
-      L.marker([station.latitude, station.longitude], {
+      const stationMarker = L.marker([station.latitude, station.longitude], {
         icon: stationIcon,
         draggable: false,
       })
         .bindPopup(`<strong>${station.name}</strong>`) // could add actions later
         .addTo(map);
+
+      // When clicked, attempt to delegate deployment to the InteractiveMapView
+      // handler (which knows about placement mode). If the handler returns
+      // handled: true, suppress the default popup so the click feels like a
+      // deployment action. Otherwise let the popup show as normal.
+      try {
+        stationMarker.on("click", async function (ev: any) {
+          try {
+            if (typeof (window as any).deploySelectedInventoryDroneToStation === "function") {
+              const res = await (window as any).deploySelectedInventoryDroneToStation(
+                station.id,
+              );
+              if (res && res.handled) {
+                try {
+                  stationMarker.closePopup();
+                } catch {}
+              }
+            }
+          } catch (e) {
+            // ignore
+          }
+        });
+      } catch (e) {
+        // ignore binding errors
+      }
     });
   }
 }
