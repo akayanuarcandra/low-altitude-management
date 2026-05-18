@@ -139,7 +139,15 @@ export function MapControls({
                 setTimeout(() => setAlert(null), 3000);
                 return;
               }
-              setIsPlacingDrone(!isPlacingDrone);
+              const newPlacing = !isPlacingDrone;
+              setIsPlacingDrone(newPlacing);
+              if (newPlacing) {
+                setAlert({ type: "success", message: "Placement mode: click a station to deploy the drone." });
+                setTimeout(() => setAlert(null), 3000);
+              } else {
+                setAlert({ type: "success", message: "Placement cancelled." });
+                setTimeout(() => setAlert(null), 1500);
+              }
             }}
             variant={isPlacingDrone ? "destructive" : "secondary"}
             className="w-full"
