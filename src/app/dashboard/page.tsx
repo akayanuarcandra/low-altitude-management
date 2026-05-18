@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
-import { drones, towers, waypoints } from "@/lib/schema";
+import { drones, towers, waypoints, stations } from "@/lib/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Drone, Radio, MapPin, Map } from "lucide-react";
+import { Drone, Radio, MapPin, Map, Warehouse } from "lucide-react";
 
 /**
  * Dashboard Overview Page
@@ -13,6 +13,7 @@ export default async function Dashboard() {
   const allDrones = await db.select().from(drones);
   const allTowers = await db.select().from(towers);
   const allWaypoints = await db.select().from(waypoints);
+  const allStations = await db.select().from(stations);
 
   const stats = [
     {
@@ -35,6 +36,13 @@ export default async function Dashboard() {
       icon: MapPin,
       description: "Navigation points",
       color: "bg-green-500"
+    },
+    {
+      title: "Stations",
+      count: allStations.length,
+      icon: Warehouse,
+      description: "Landing stations",
+      color: "bg-yellow-500"
     }
   ];
 
@@ -48,7 +56,7 @@ export default async function Dashboard() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           {stats.map((stat) => {
             const Icon = stat.icon;
             return (
@@ -104,6 +112,13 @@ export default async function Dashboard() {
               >
                 <MapPin className="h-6 w-6 mx-auto mb-2 text-green-500" />
                 <div className="text-sm font-medium">Add Waypoint</div>
+              </a>
+              <a 
+                href="/dashboard/stations/new" 
+                className="p-4 border rounded-lg hover:bg-gray-50 text-center transition"
+              >
+                <Warehouse className="h-6 w-6 mx-auto mb-2 text-yellow-500" />
+                <div className="text-sm font-medium">Add Station</div>
               </a>
             </div>
           </CardContent>
