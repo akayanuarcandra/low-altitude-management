@@ -489,50 +489,8 @@ export function InteractiveMapView({
           }
         };
 
-        // Handler invoked by station marker clicks (from setupMapLayers).
-        // Returns an object { handled: boolean } indicating whether the click
-        // resulted in a deployment (so callers can suppress the popup).
-        (window as any).deploySelectedInventoryDroneToStation = async (
-          stationId: number,
-        ) => {
-          try {
-            if (!isPlacingDrone || !selectedInventoryDrone) {
-              // Not in placement mode: do not handle the click
-              return { handled: false };
-            }
-
-            const station = stations.find((s) => s.id === stationId);
-            if (!station) {
-              setAlert({ type: "error", message: "Station not found" });
-              setTimeout(() => setAlert(null), 3000);
-              return { handled: false };
-            }
-
-            const droneToPlace = inventoryDrones.find(
-              (d) => d.id === selectedInventoryDrone,
-            );
-            if (!droneToPlace) return { handled: false };
-
-            await updateDrone(selectedInventoryDrone, {
-              latitude: Number(station.latitude),
-              longitude: Number(station.longitude),
-              status: "deployed",
-            });
-
-            setAlert({
-              type: "success",
-              message: `${droneToPlace.name} deployed successfully at station "${station.name}"!`,
-            });
-            setIsPlacingDrone(false);
-            setSelectedInventoryDrone(null);
-            setTimeout(() => setAlert(null), 3000);
-            return { handled: true };
-          } catch (err) {
-            setAlert({ type: "error", message: "Failed to deploy drone" });
-            setTimeout(() => setAlert(null), 3000);
-            return { handled: false };
-          }
-        };
+        // (deploySelectedInventoryDroneToStation is set in the map-effect so
+        // that it captures fresh isPlacingDrone/selectedInventoryDrone values.)
 
         setIsLoading(false);
       } catch (error) {
@@ -543,6 +501,52 @@ export function InteractiveMapView({
 
     initializeMap();
   }, [towers]);
+
+  // Keep a stable function on window that delegates to the latest placement state.
+  // We expose this outside the initializeMap effect so station marker event
+  // handlers can call it even if they were created earlier.
+  useEffect(() => {
+    (window as any).deploySelectedInventoryDroneToStation = async (
+      stationId: number,
+    ) => {
+      try {
+        if (!isPlacingDrone || !selectedInventoryDrone) {
+          return { handled: false };
+        }
+
+        const station = stations.find((s) => s.id === stationId);
+        if (!station) {
+          setAlert({ type: "error", message: "Station not found" });
+          setTimeout(() => setAlert(null), 3000);
+          return { handled: false };
+        }
+
+        const droneToPlace = inventoryDrones.find(
+          (d) => d.id === selectedInventoryDrone,
+        );
+        if (!droneToPlace) return { handled: false };
+
+        await updateDrone(selectedInventoryDrone, {
+          latitude: Number(station.latitude),
+          longitude: Number(station.longitude),
+          status: "deployed",
+        });
+
+        setAlert({
+          type: "success",
+          message: `${droneToPlace.name} deployed successfully at station "${station.name}"!`,
+        });
+        setIsPlacingDrone(false);
+        setSelectedInventoryDrone(null);
+        setTimeout(() => setAlert(null), 3000);
+        return { handled: true };
+      } catch (err) {
+        setAlert({ type: "error", message: "Failed to deploy drone" });
+        setTimeout(() => setAlert(null), 3000);
+        return { handled: false };
+      }
+    };
+  }, [isPlacingDrone, selectedInventoryDrone, stations, inventoryDrones]);
 
   useEffect(() => {
     if (!mapRef.current || !L || isLoading) return;
