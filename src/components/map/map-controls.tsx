@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/select-native";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DroneDTO } from "./types";
+import { DroneDTO, StationDTO } from "./types";
 import { updateDrone } from "@/app/actions";
 import TaskListModal from "@/components/tasks/task-list-modal";
 
@@ -24,6 +24,7 @@ interface MapControlsProps {
   ) => void;
   // Optional callback to notify parent when tasks are started for a drone
   onRunStarted?: (started: Array<any>) => void;
+  stations: StationDTO[];
 }
 
 export function MapControls({
@@ -39,6 +40,7 @@ export function MapControls({
   setIsAddingStation,
   setAlert,
   onRunStarted,
+  stations,
 }: MapControlsProps) {
   const [showTasksModal, setShowTasksModal] = useState(false);
   const [tasksModalDroneId, setTasksModalDroneId] = useState<number | null>(
@@ -127,6 +129,15 @@ export function MapControls({
                 setTimeout(() => setAlert(null), 3000);
                 return;
               }
+              // Only allow placement when there are stations available
+              if (!stations || stations.length === 0) {
+                setAlert({
+                  type: "error",
+                  message: "No stations available, please add station first",
+                });
+                setTimeout(() => setAlert(null), 3000);
+                return;
+              }
               setIsPlacingDrone(!isPlacingDrone);
             }}
             variant={isPlacingDrone ? "destructive" : "secondary"}
@@ -137,8 +148,7 @@ export function MapControls({
 
           {isPlacingDrone && (
             <p className="text-sm text-blue-700 bg-blue-50 p-2 rounded">
-              Click on the map within a tower's blue coverage area to deploy the
-              drone.
+              Click on a station on the map to deploy the drone.
             </p>
           )}
         </CardContent>

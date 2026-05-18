@@ -17,11 +17,9 @@ export default function TaskForm({
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<"delivery" | "return">(
+  const [category, setCategory] = useState<"delivery" | "return" | "patrol">(
     "delivery",
   );
-  // add patrol category
-  type CategoryType = "delivery" | "return" | "patrol";
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -34,7 +32,7 @@ export default function TaskForm({
   );
   // Task-level quantity (displayed below description)
   const [quantity, setQuantity] = useState<number>(1);
-  // patrol state
+  // patrol state (kept for compatibility but unused — UI no longer exposes patrol)
   const [patrolRadiusMeters, setPatrolRadiusMeters] = useState<number>(80);
   const [patrolDurationSeconds, setPatrolDurationSeconds] = useState<number>(300);
 
@@ -107,10 +105,11 @@ export default function TaskForm({
         setQuantity(1);
         setSelectedWaypointId(null);
       }
-      if (category === "patrol") {
-        // default title for patrol
-        if (title.trim() === "") setTitle("Patrol Area");
-      }
+    if (category === "patrol") {
+      // Although patrol category is no longer selectable in the UI, preserve
+      // this defensive branch in case legacy code sets the category value.
+      if (title.trim() === "") setTitle("Patrol Area");
+    }
     } catch {
       // ignore
     }
@@ -152,31 +151,7 @@ export default function TaskForm({
         },
       ];
     }
-    if (category === "patrol") {
-      // Validation
-      if (!title.trim()) {
-        setMessage("Title required");
-        return;
-      }
-      if (!patrolRadiusMeters || patrolRadiusMeters <= 0) {
-        setMessage("Radius required");
-        return;
-      }
-      if (patrolRadiusMeters > 10000) {
-        setMessage("Radius must be <= 10000 meters");
-        return;
-      }
-      if (!patrolDurationSeconds || patrolDurationSeconds <= 0) {
-        setMessage("Duration required");
-        return;
-      }
-      if (patrolDurationSeconds > 3600) {
-        setMessage("Duration must be <= 3600 seconds");
-        return;
-      }
-      payload.patrolRadiusMeters = Number(patrolRadiusMeters);
-      payload.patrolDurationSeconds = Number(patrolDurationSeconds);
-    }
+    // Patrol creation is disabled; the frontend no longer exposes patrol fields.
 
     try {
       setLoading(true);
@@ -320,7 +295,7 @@ export default function TaskForm({
         >
           <option value="delivery">Delivery</option>
           <option value="return">Return to nearest station</option>
-          <option value="patrol">Patrol</option>
+          {/* Patrol option removed to prevent users creating patrols */}
         </select>
       </div>
 
@@ -373,38 +348,7 @@ export default function TaskForm({
         </>
       )}
 
-      {category === "patrol" && (
-        <>
-          <div>
-            <label className="block text-sm">Title</label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-          </div>
-
-          <div>
-            <label className="block text-sm">Radius (meters)</label>
-            <input
-              type="number"
-              min={1}
-              max={10000}
-              value={patrolRadiusMeters}
-              onChange={(e) => setPatrolRadiusMeters(parseInt(e.target.value || "0"))}
-              className="mt-1 block w-full border rounded px-2 py-1"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm">Duration (seconds)</label>
-            <input
-              type="number"
-              min={1}
-              max={3600}
-              value={patrolDurationSeconds}
-              onChange={(e) => setPatrolDurationSeconds(parseInt(e.target.value || "0"))}
-              className="mt-1 block w-full border rounded px-2 py-1"
-            />
-          </div>
-        </>
-      )}
+      {/* Patrol UI removed: patrols are soft-disabled on the server side */}
 
       {/* Patrol category removed */}
 

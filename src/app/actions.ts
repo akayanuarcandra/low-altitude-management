@@ -257,19 +257,18 @@ export async function createTaskWithItemsFromJSON(body: any) {
   const description = (body?.description as string | null)?.trim() || null;
   const items = Array.isArray(body?.items) ? body.items : [];
 
+  // Patrols are currently soft-disabled. The frontend no longer shows patrol
+  // creation UI, but clients may still POST category: 'patrol'. Reject such
+  // requests explicitly to avoid creating Patrol rows or any runtime side-
+  // effects. Keep the Patrol table in the schema for later removal.
+  if (body?.category === "patrol") {
+    return { ok: false, message: "Patrols are disabled" };
+  }
+
   if (!title) return { ok: false, message: "title required" };
 
   // Create task; include quantity if provided on body
   const insertData: any = { title, description };
-  // Accept patrol fields if provided
-  if (body?.patrolRadiusMeters !== undefined) {
-    const n = Number(body.patrolRadiusMeters);
-    if (!Number.isNaN(n)) insertData.patrolRadiusMeters = n;
-  }
-  if (body?.patrolDurationSeconds !== undefined) {
-    const n = Number(body.patrolDurationSeconds);
-    if (!Number.isNaN(n)) insertData.patrolDurationSeconds = n;
-  }
   // Accept quantity as number or numeric string
   if (body?.quantity !== undefined) {
     const q = Number(body.quantity);
@@ -296,7 +295,13 @@ export async function createTaskWithItemsFromJSON(body: any) {
     // automatically create a return-to-nearest-station TaskItem so the drone can be
     // instructed to move. This is a defensive fallback for UI callers that omit
     // the target.
-    if (body?.category === "return" || ((Array.isArray(items) && items.length === 0) && body?.droneId)) {
+    // Defensive fallback: create a return-to-nearest-station TaskItem when caller
+    // explicitly requested a return OR provided a droneId but no items. Exclude
+    // patrol tasks so they are not misclassified as returns.
+    if (
+      body?.category === "return" ||
+      ((Array.isArray(items) && items.length === 0) && body?.droneId && body?.category !== "patrol")
+    ) {
       // Ensure droneId provided
       const droneId = body?.droneId !== undefined ? Number(body.droneId) : null;
       if (!droneId || Number.isNaN(droneId)) {
@@ -368,7 +373,7 @@ export async function createTaskWithItemsFromJSON(body: any) {
           deliveryLongitude: String((nearest as any).longitude),
           quantity: body?.quantity ? Number(body.quantity) : 1,
           sequence: 0,
-        })
+        } as any)
         .returning();
 
       console.debug("createTaskWithItemsFromJSON: inserted return task item (auto)", {
@@ -455,7 +460,7 @@ export async function createTaskWithItemsFromJSON(body: any) {
         deliveryLongitude: finalLon,
         quantity: qty,
         sequence: seqVal,
-      });
+      } as any);
     }
 
     revalidatePath("/dashboard/map");

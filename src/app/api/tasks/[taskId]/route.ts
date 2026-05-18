@@ -4,10 +4,8 @@ import { tasks, taskItems, waypoints } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { deleteTaskWithItems } from "@/app/actions";
 
-export async function GET(
-  req: Request,
-  { params }: { params: { taskId: string } },
-) {
+export async function GET(req: Request, context: any) {
+  const { params } = context as { params: { taskId: string } };
   try {
     const taskId = Number(params.taskId);
     if (Number.isNaN(taskId) || taskId <= 0) {
@@ -49,8 +47,7 @@ export async function GET(
       title: t.title,
       description: t.description,
       quantity: Number(t.quantity),
-      patrolRadiusMeters: t.patrolRadiusMeters ?? null,
-      patrolDurationSeconds: t.patrolDurationSeconds ?? null,
+      // patrol fields removed from backend responses
       droneId: t.droneId ?? null,
       status: t.status,
       createdAt: t.createdAt?.toISOString?.() ?? t.createdAt,
@@ -66,10 +63,8 @@ export async function GET(
   }
 }
 
-export async function DELETE(
-  req: Request,
-  { params }: { params: { taskId: string } },
-) {
+export async function DELETE(req: Request, context: any) {
+  const { params } = context as { params: { taskId: string } };
   try {
     const taskId = Number(params.taskId);
     console.debug("/api/tasks/[taskId] DELETE called", taskId);
@@ -103,10 +98,8 @@ export async function DELETE(
   }
 }
 
-export async function PUT(
-  req: Request,
-  { params }: { params: { taskId: string } },
-) {
+export async function PUT(req: Request, context: any) {
+  const { params } = context as { params: { taskId: string } };
   try {
     const taskId = Number(params.taskId);
     if (Number.isNaN(taskId) || taskId <= 0) {
@@ -122,16 +115,7 @@ export async function PUT(
     if (body.description !== undefined)
       updateData.description =
         body.description === null ? null : String(body.description);
-    if (body.patrolRadiusMeters !== undefined) {
-      const n = Number(body.patrolRadiusMeters);
-      if (!Number.isNaN(n)) updateData.patrolRadiusMeters = n;
-      else updateData.patrolRadiusMeters = null;
-    }
-    if (body.patrolDurationSeconds !== undefined) {
-      const n = Number(body.patrolDurationSeconds);
-      if (!Number.isNaN(n)) updateData.patrolDurationSeconds = n;
-      else updateData.patrolDurationSeconds = null;
-    }
+    // patrol fields removed from update handling
     if (body.quantity !== undefined) {
       const q = Number(body.quantity);
       if (!Number.isNaN(q)) updateData.quantity = q;

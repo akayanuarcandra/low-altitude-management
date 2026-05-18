@@ -9,21 +9,28 @@ import {
   foreignKey,
 } from "drizzle-orm/pg-core";
 
-export const tasks = pgTable("Task", {
-  id: serial("id").primaryKey(),
-  title: text("title").notNull(),
-  description: text("description"),
-  quantity: integer("quantity").notNull().default(1),
-  // Patrol-specific fields
-  patrolRadiusMeters: integer("patrol_radius_meters"),
-  patrolDurationSeconds: integer("patrol_duration_seconds"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  droneId: integer("drone_id"),
-  status: text("status").notNull().default("pending"),
-  scheduledAt: timestamp("scheduled_at"),
-  startedAt: timestamp("started_at"),
-  completedAt: timestamp("completed_at"),
-});
+export const tasks = pgTable(
+  "Task",
+  {
+    id: serial("id").primaryKey(),
+    title: text("title").notNull(),
+    description: text("description"),
+    quantity: integer("quantity").notNull().default(1),
+    // (patrol fields removed from DB schema)
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    droneId: integer("drone_id"),
+    status: text("status").notNull().default("pending"),
+    scheduledAt: timestamp("scheduled_at"),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => ({
+    droneFk: foreignKey({
+      columns: [table.droneId],
+      foreignColumns: [drones.id],
+    }).onDelete("set null"),
+  }),
+);
 
 export const towers = pgTable("Tower", {
   id: serial("id").primaryKey(),
@@ -70,17 +77,26 @@ export const stations = pgTable("Station", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const precomputedRoutes = pgTable("PrecomputedRoute", {
-  id: serial("id").primaryKey(),
-  droneId: integer("drone_id").notNull(),
-  stopsHash: text("stops_hash"),
-  stopsJson: text("stops_json"),
-  startLat: text("start_lat"),
-  startLon: text("start_lon"),
-  routeJson: text("route_json"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at"),
-});
+export const precomputedRoutes = pgTable(
+  "PrecomputedRoute",
+  {
+    id: serial("id").primaryKey(),
+    droneId: integer("drone_id").notNull(),
+    stopsHash: text("stops_hash"),
+    stopsJson: text("stops_json"),
+    startLat: text("start_lat"),
+    startLon: text("start_lon"),
+    routeJson: text("route_json"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => ({
+    droneFk: foreignKey({
+      columns: [table.droneId],
+      foreignColumns: [drones.id],
+    }).onDelete("cascade"),
+  }),
+);
 
 // TaskItem table uses existing DB columns: item_id, delivery_latitude, delivery_longitude, sequence
 export const taskItems = pgTable(
@@ -109,6 +125,29 @@ export const taskItems = pgTable(
     itemFk: foreignKey({
       columns: [table.itemId],
       foreignColumns: [waypoints.id],
+    }).onDelete("set null"),
+  }),
+);
+
+// New Patrol table: separate patrolling from Task/TaskItem.
+export const patrols = pgTable(
+  "Patrol",
+  {
+    id: serial("id").primaryKey(),
+    droneId: integer("drone_id"),
+    radiusMeters: integer("radius_meters").notNull(),
+    durationSeconds: integer("duration_seconds").notNull(),
+    status: text("status").notNull().default("pending"),
+    startLat: text("start_lat"),
+    startLon: text("start_lon"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => ({
+    droneFk: foreignKey({
+      columns: [table.droneId],
+      foreignColumns: [drones.id],
     }).onDelete("set null"),
   }),
 );

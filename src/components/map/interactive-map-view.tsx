@@ -392,6 +392,12 @@ export function InteractiveMapView({
     };
   }
 
+  // Click-to-station matching threshold (meters). Exported as a constant so it's
+  // easy to change in one place later.
+  const STATION_MATCH_THRESHOLD_METERS = Number(
+    process.env.NEXT_PUBLIC_STATION_MATCH_THRESHOLD_METERS ?? 20,
+  );
+
   useEffect(() => {
     const initializeMap = async () => {
       try {
@@ -575,39 +581,41 @@ export function InteractiveMapView({
 
       if (!droneToPlace) return;
 
-      let assignedTower: TowerDTO | null = null;
-      for (const tower of towers) {
-        const distance = haversineMeters(
-          lat,
-          lng,
-          tower.latitude,
-          tower.longitude,
-        );
-        if (distance <= tower.rangeMeters) {
-          assignedTower = tower;
+      // Station-only deployment: find a station within the matching threshold.
+      if (!stations || stations.length === 0) {
+        setAlert({
+          type: "error",
+          message: "No stations available, please add station first",
+        });
+        setTimeout(() => setAlert(null), 3000);
+        return;
+      }
+
+      let matchedStation: StationDTO | null = null;
+      for (const s of stations) {
+        const d = haversineMeters(lat, lng, Number(s.latitude), Number(s.longitude));
+        if (d <= STATION_MATCH_THRESHOLD_METERS) {
+          matchedStation = s;
           break;
         }
       }
 
-      if (!assignedTower) {
-        setAlert({
-          type: "error",
-          message: `${droneToPlace.name} is outside all tower coverage areas! Cannot deploy.`,
-        });
-        setTimeout(() => setAlert(null), 4000);
+      if (!matchedStation) {
+        setAlert({ type: "error", message: "please deploy on station" });
+        setTimeout(() => setAlert(null), 3000);
         return;
       }
 
-      updateDrone(selectedInventoryDrone, {
-        latitude: lat,
-        longitude: lng,
-        towerId: assignedTower.id,
+      // Deploy exactly to the station coordinates. Do not modify towerId here.
+      await updateDrone(selectedInventoryDrone, {
+        latitude: Number(matchedStation.latitude),
+        longitude: Number(matchedStation.longitude),
         status: "deployed",
       });
 
       setAlert({
         type: "success",
-        message: `${droneToPlace.name} deployed successfully at tower "${assignedTower.name}"!`,
+        message: `${droneToPlace.name} deployed successfully at station "${matchedStation.name}"!`,
       });
       setIsPlacingDrone(false);
       setSelectedInventoryDrone(null);
@@ -933,6 +941,7 @@ export function InteractiveMapView({
           setIsAddingStation={setIsAddingStation}
           setAlert={setAlert}
           onRunStarted={handleRunStarted}
+          stations={stations}
         />
       </div>
 
