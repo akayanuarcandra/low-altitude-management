@@ -121,6 +121,7 @@ export function MapControls({
 
           <Button
             onClick={() => {
+              console.log("MapControls: Place button clicked", { selectedInventoryDrone, isPlacingDrone, stationsCount: stations?.length });
               if (!selectedInventoryDrone) {
                 setAlert({
                   type: "error",
