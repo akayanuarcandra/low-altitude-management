@@ -676,11 +676,10 @@ export function InteractiveMapView({
       setTimeout(() => setAlert(null), 3000);
     };
 
-    if (isPlacingDrone || isAddingWaypoint) {
-      map.on("click", handleMapClick);
-      map.on("dragstart", handleDragStart);
-      map.on("dragend", handleDragEnd);
-    }
+    // Always attach handlers; the handler itself guards on isPlacingDrone/isAddingWaypoint.
+    map.on("click", handleMapClick);
+    map.on("dragstart", handleDragStart);
+    map.on("dragend", handleDragEnd);
 
     window.moveDroneToWaypoint = async (droneId: number) => {
       const waypointSelectEl = document.getElementById(
@@ -940,16 +939,18 @@ export function InteractiveMapView({
     };
 
     return () => {
-      if (isPlacingDrone || isAddingWaypoint) {
+      try {
         map.off("click", handleMapClick);
         map.off("dragstart", handleDragStart);
         map.off("dragend", handleDragEnd);
-      }
-      if (mapRef.current) {
-        mapRef.current.off("click", handleMapClick);
-        mapRef.current.off("dragstart", handleDragStart);
-        mapRef.current.off("dragend", handleDragEnd);
-      }
+      } catch {}
+      try {
+        if (mapRef.current) {
+          mapRef.current.off("click", handleMapClick);
+          mapRef.current.off("dragstart", handleDragStart);
+          mapRef.current.off("dragend", handleDragEnd);
+        }
+      } catch {}
     };
   }, [
     towers,
