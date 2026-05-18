@@ -266,10 +266,12 @@ export function setupMapLayers(
       try {
         stationMarker.on("click", async function (ev: any) {
           try {
+            console.log("stationMarker clicked", { stationId: station.id });
             if (typeof (window as any).deploySelectedInventoryDroneToStation === "function") {
               const res = await (window as any).deploySelectedInventoryDroneToStation(
                 station.id,
               );
+              console.log("deploySelectedInventoryDroneToStation result", { res });
               if (res && res.handled) {
                 try {
                   stationMarker.closePopup();
@@ -277,7 +279,7 @@ export function setupMapLayers(
               }
             }
           } catch (e) {
-            // ignore
+            console.error("stationMarker click handler error", e);
           }
         });
       } catch (e) {
