@@ -134,6 +134,12 @@ export default function TaskForm({
       category,
     };
 
+    // include patrol fields when creating a patrol
+    if (category === "patrol") {
+      payload.radiusMeters = Number(patrolRadiusMeters);
+      payload.durationSeconds = Number(patrolDurationSeconds);
+    }
+
     // include quantity only for delivery tasks (patrol/return don't use it)
     if (category === "delivery") payload.quantity = Number(quantity) || 1;
 
@@ -207,6 +213,24 @@ export default function TaskForm({
           setMessage(data.error || "Failed to update task");
         }
       } else {
+        // client-side validation for patrol
+        if (category === "patrol") {
+          if (Number.isNaN(payload.radiusMeters) || payload.radiusMeters < 30 || payload.radiusMeters > 2000) {
+            setMessage("Radius must be between 30 and 2000 meters");
+            setLoading(false);
+            return;
+          }
+          if (Number.isNaN(payload.durationSeconds) || payload.durationSeconds < 30 || payload.durationSeconds > 7200) {
+            setMessage("Duration must be between 30 and 7200 seconds");
+            setLoading(false);
+            return;
+          }
+          if (!initialDroneId) {
+            setMessage("Please select a drone with a known position or provide start coordinates");
+            setLoading(false);
+            return;
+          }
+        }
         const res = await fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -270,7 +294,9 @@ export default function TaskForm({
             // ignore
           }
         } else {
-          setMessage(data.error || "Failed to create task");
+          // Surface server error or diagnostics when patrol precompute fails
+          const errMsg = data.error || (data.diagnostics ? JSON.stringify(data.diagnostics) : "Failed to create task");
+          setMessage(errMsg);
         }
       }
     } catch (err: any) {
@@ -295,7 +321,7 @@ export default function TaskForm({
         >
           <option value="delivery">Delivery</option>
           <option value="return">Return to nearest station</option>
-          {/* Patrol option removed to prevent users creating patrols */}
+          <option value="patrol">Patrol area</option>
         </select>
       </div>
 
@@ -348,7 +374,41 @@ export default function TaskForm({
         </>
       )}
 
-      {/* Patrol UI removed: patrols are soft-disabled on the server side */}
+      {category === "patrol" && (
+        <>
+          <div>
+            <label className="block text-sm">Radius (meters)</label>
+            <input
+              type="number"
+              min={30}
+              max={2000}
+              value={patrolRadiusMeters}
+              onChange={(e) => setPatrolRadiusMeters(Number(e.target.value || 80))}
+              className="mt-1 block w-full border rounded px-2 py-1"
+            />
+            <p className="text-xs text-gray-500">Max 2000m</p>
+          </div>
+
+          <div>
+            <label className="block text-sm">Duration (seconds)</label>
+            <input
+              type="number"
+              min={30}
+              max={7200}
+              value={patrolDurationSeconds}
+              onChange={(e) => setPatrolDurationSeconds(Number(e.target.value || 300))}
+              className="mt-1 block w-full border rounded px-2 py-1"
+            />
+            <p className="text-xs text-gray-500">Max 7200s</p>
+          </div>
+
+          {initialDroneId ? (
+            <p className="text-xs text-gray-600">Using selected drone position as patrol center</p>
+          ) : (
+            <p className="text-xs text-red-600">No drone selected — please select drone or provide manual start coords</p>
+          )}
+        </>
+      )}
 
       {/* Patrol category removed */}
 

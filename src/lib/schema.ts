@@ -130,3 +130,25 @@ export const taskItems = pgTable(
 );
 
 // Patrols removed from schema; patrolling feature is disabled
+export const patrols = pgTable(
+  "Patrol",
+  {
+    id: serial("id").primaryKey(),
+    droneId: integer("drone_id"),
+    radiusMeters: integer("radius_meters").notNull(),
+    durationSeconds: integer("duration_seconds").notNull(),
+    status: text("status").notNull().default("pending"),
+    startLat: decimal("start_lat", { precision: 10, scale: 8 }),
+    startLon: decimal("start_lon", { precision: 11, scale: 8 }),
+    routeJson: text("route_json"),
+    routeDistanceM: integer("route_distance_m"),
+    routeDurationS: integer("route_duration_s"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+    lastError: text("last_error"),
+  },
+  (table) => ({
+    droneFk: foreignKey({ columns: [table.droneId], foreignColumns: [drones.id] }).onDelete("set null"),
+  }),
+);

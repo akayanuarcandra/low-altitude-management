@@ -8,9 +8,11 @@ import {
   waypoints,
   stations,
   taskItems,
+  patrols,
 } from "@/lib/schema";
 import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import computePatrolRoute from "@/lib/patrol-precomputer";
 
 export async function createTask(formData: FormData) {
   // Normalize form input and delegate to createTaskWithItemsFromJSON so all
@@ -281,6 +283,57 @@ export async function createTaskWithItemsFromJSON(body: any) {
     });
     const [res] = await db.insert(tasks).values(insertData).returning();
     const taskId = (res as any).id;
+
+    // If caller explicitly requested a patrol category, create a Patrol row and precompute route
+    if (body?.category === "patrol") {
+      const radius = Number(body.radiusMeters ?? body.patrolRadiusMeters ?? 80);
+      const duration = Number(body.durationSeconds ?? body.patrolDurationSeconds ?? 300);
+      // determine start
+      let startLat = body.startLat ?? null;
+      let startLon = body.startLon ?? null;
+      if ((!startLat || !startLon) && body?.droneId) {
+        const [dr] = await db.select().from(drones).where(eq(drones.id, Number(body.droneId)));
+        if (dr && dr.latitude && dr.longitude) {
+          startLat = Number(dr.latitude);
+          startLon = Number(dr.longitude);
+        }
+      }
+
+      // fetch towers
+      const towerRows = await db.select().from(towers);
+      const towerList = (towerRows || []).map((t: any) => ({ latitude: Number(t.latitude), longitude: Number(t.longitude), rangeMeters: Number(t.rangeMeters) }));
+
+      if (!startLat || !startLon) {
+        return { ok: false, error: 'start location required for patrol' };
+      }
+
+      const center = { lat: Number(startLat), lon: Number(startLon) };
+      const pre = await computePatrolRoute(center, radius, duration, towerList, { anchors: 6, maxRadius: 2000 });
+      if (!pre.ok) {
+        return { ok: false, error: pre.error };
+      }
+
+      // insert patrol row
+      try {
+        await db.insert(patrols).values({
+          droneId: body?.droneId ?? null,
+          radiusMeters: Number(radius),
+          durationSeconds: Number(duration),
+          status: 'precomputed',
+          startLat: String(center.lat),
+          startLon: String(center.lon),
+          routeJson: JSON.stringify(pre.route),
+          routeDistanceM: Math.round(pre.loopDistance ?? 0),
+          routeDurationS: Math.round(pre.loopDuration ?? 0),
+        } as any);
+      } catch (e) {
+        console.error('failed to persist patrol', e);
+      }
+
+      revalidatePath('/dashboard/map');
+      revalidatePath('/dashboard/tasks');
+      return { ok: true, taskId, patrolPrecomputed: true };
+    }
 
     // Special-case: "return" category -> create a single task item pointing to the
     // nearest station to the provided droneId. This requires droneId and the drone
