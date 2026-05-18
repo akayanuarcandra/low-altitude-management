@@ -509,6 +509,11 @@ export function InteractiveMapView({
     (window as any).deploySelectedInventoryDroneToStation = async (
       stationId: number,
     ) => {
+      console.debug("deploySelectedInventoryDroneToStation called", {
+        stationId,
+        isPlacingDrone,
+        selectedInventoryDrone,
+      });
       try {
         if (!isPlacingDrone || !selectedInventoryDrone) {
           return { handled: false };
