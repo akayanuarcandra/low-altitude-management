@@ -257,13 +257,7 @@ export async function createTaskWithItemsFromJSON(body: any) {
   const description = (body?.description as string | null)?.trim() || null;
   const items = Array.isArray(body?.items) ? body.items : [];
 
-  // Patrols are currently soft-disabled. The frontend no longer shows patrol
-  // creation UI, but clients may still POST category: 'patrol'. Reject such
-  // requests explicitly to avoid creating Patrol rows or any runtime side-
-  // effects. Keep the Patrol table in the schema for later removal.
-  if (body?.category === "patrol") {
-    return { ok: false, message: "Patrols are disabled" };
-  }
+  // Patrols are currently disabled: ignore category 'patrol' if present.
 
   if (!title) return { ok: false, message: "title required" };
 
@@ -300,7 +294,7 @@ export async function createTaskWithItemsFromJSON(body: any) {
     // patrol tasks so they are not misclassified as returns.
     if (
       body?.category === "return" ||
-      ((Array.isArray(items) && items.length === 0) && body?.droneId && body?.category !== "patrol")
+      ((Array.isArray(items) && items.length === 0) && body?.droneId)
     ) {
       // Ensure droneId provided
       const droneId = body?.droneId !== undefined ? Number(body.droneId) : null;

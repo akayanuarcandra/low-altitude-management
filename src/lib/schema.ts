@@ -129,25 +129,4 @@ export const taskItems = pgTable(
   }),
 );
 
-// New Patrol table: separate patrolling from Task/TaskItem.
-export const patrols = pgTable(
-  "Patrol",
-  {
-    id: serial("id").primaryKey(),
-    droneId: integer("drone_id"),
-    radiusMeters: integer("radius_meters").notNull(),
-    durationSeconds: integer("duration_seconds").notNull(),
-    status: text("status").notNull().default("pending"),
-    startLat: text("start_lat"),
-    startLon: text("start_lon"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    startedAt: timestamp("started_at"),
-    completedAt: timestamp("completed_at"),
-  },
-  (table) => ({
-    droneFk: foreignKey({
-      columns: [table.droneId],
-      foreignColumns: [drones.id],
-    }).onDelete("set null"),
-  }),
-);
+// Patrols removed from schema; patrolling feature is disabled
