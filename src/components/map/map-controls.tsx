@@ -141,12 +141,18 @@ export function MapControls({
               }
               const newPlacing = !isPlacingDrone;
               setIsPlacingDrone(newPlacing);
+              // Show a short inline hint via the existing small paragraph below the button
+              // We also keep the brief success alert for clarity.
               if (newPlacing) {
-                setAlert({ type: "success", message: "Placement mode: click a station to deploy the drone." });
-                setTimeout(() => setAlert(null), 3000);
+                try {
+                  setAlert({ type: "success", message: "Placement mode: click a station to deploy the drone." });
+                  setTimeout(() => setAlert(null), 3000);
+                } catch {}
               } else {
-                setAlert({ type: "success", message: "Placement cancelled." });
-                setTimeout(() => setAlert(null), 1500);
+                try {
+                  setAlert({ type: "success", message: "Placement cancelled." });
+                  setTimeout(() => setAlert(null), 1500);
+                } catch {}
               }
             }}
             variant={isPlacingDrone ? "destructive" : "secondary"}
@@ -155,11 +161,11 @@ export function MapControls({
             {isPlacingDrone ? "Cancel Placement" : "Place Selected Drone"}
           </Button>
 
-          {isPlacingDrone && (
-            <p className="text-sm text-blue-700 bg-blue-50 p-2 rounded">
-              Click on a station on the map to deploy the drone.
-            </p>
-          )}
+      {isPlacingDrone && (
+        <div className="p-2">
+          <div className="text-sm text-blue-700 bg-blue-50 p-2 rounded">Click on a station on the map to deploy the drone.</div>
+        </div>
+      )}
         </CardContent>
       </Card>
 

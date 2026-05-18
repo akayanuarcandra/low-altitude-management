@@ -1006,6 +1006,38 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
     graph,
   ]);
 
+  // Enable/disable map interactions when placement mode toggles. This avoids
+  // accidental map panning swallowing intended clicks while placing a drone.
+  useEffect(() => {
+    try {
+      const map = mapRef.current;
+      if (!map) return;
+      if (isPlacingDrone) {
+        map.dragging && map.dragging.disable && map.dragging.disable();
+        map.doubleClickZoom && map.doubleClickZoom.disable && map.doubleClickZoom.disable();
+        map.touchZoom && map.touchZoom.disable && map.touchZoom.disable();
+        map.scrollWheelZoom && map.scrollWheelZoom.disable && map.scrollWheelZoom.disable();
+        map.boxZoom && map.boxZoom.disable && map.boxZoom.disable();
+        try {
+          const el = (map as any).getContainer();
+          if (el && el.style) el.style.cursor = "crosshair";
+        } catch {}
+      } else {
+        map.dragging && map.dragging.enable && map.dragging.enable();
+        map.doubleClickZoom && map.doubleClickZoom.enable && map.doubleClickZoom.enable();
+        map.touchZoom && map.touchZoom.enable && map.touchZoom.enable();
+        map.scrollWheelZoom && map.scrollWheelZoom.enable && map.scrollWheelZoom.enable();
+        map.boxZoom && map.boxZoom.enable && map.boxZoom.enable();
+        try {
+          const el = (map as any).getContainer();
+          if (el && el.style) el.style.cursor = "";
+        } catch {}
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [isPlacingDrone]);
+
   return (
     <div className="space-y-4">
       <div className="flex gap-4">
