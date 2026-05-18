@@ -277,17 +277,13 @@ export async function createTaskWithItemsFromJSON(body: any) {
   }
 
   try {
-    console.log("createTaskWithItemsFromJSON: inserting task", {
-      body,
-      insertData,
-    });
-    const [res] = await db.insert(tasks).values(insertData).returning();
-    const taskId = (res as any).id;
-
-    // If caller explicitly requested a patrol category, create a Patrol row and precompute route
+    // If caller explicitly requested a patrol category, precompute the route
+    // before inserting the Task. This prevents creating an orphan Task when
+    // precompute fails.
     if (body?.category === "patrol") {
       const radius = Number(body.radiusMeters ?? body.patrolRadiusMeters ?? 80);
       const duration = Number(body.durationSeconds ?? body.patrolDurationSeconds ?? 300);
+
       // determine start
       let startLat = body.startLat ?? null;
       let startLon = body.startLon ?? null;
@@ -310,10 +306,14 @@ export async function createTaskWithItemsFromJSON(body: any) {
       const center = { lat: Number(startLat), lon: Number(startLon) };
       const pre = await computePatrolRoute(center, radius, duration, towerList, { anchors: 6, maxRadius: 2000 });
       if (!pre.ok) {
-        return { ok: false, error: pre.error };
+        return { ok: false, error: pre.error, diagnostics: pre.diagnostics };
       }
 
-      // insert patrol row
+      // Precompute succeeded; insert the Task, then persist the Patrol row.
+      console.log("createTaskWithItemsFromJSON: inserting task (patrol)", { body, insertData });
+      const [res] = await db.insert(tasks).values(insertData).returning();
+      const taskId = (res as any).id;
+
       try {
         await db.insert(patrols).values({
           droneId: body?.droneId ?? null,
@@ -334,6 +334,13 @@ export async function createTaskWithItemsFromJSON(body: any) {
       revalidatePath('/dashboard/tasks');
       return { ok: true, taskId, patrolPrecomputed: true };
     }
+
+    console.log("createTaskWithItemsFromJSON: inserting task", {
+      body,
+      insertData,
+    });
+    const [res] = await db.insert(tasks).values(insertData).returning();
+    const taskId = (res as any).id;
 
     // Special-case: "return" category -> create a single task item pointing to the
     // nearest station to the provided droneId. This requires droneId and the drone
