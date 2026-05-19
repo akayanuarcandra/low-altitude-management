@@ -28,7 +28,7 @@ function pointOnCircle(center: LatLon, radiusMeters: number, angleDeg: number): 
   return { lat: (lat2 * 180) / Math.PI, lon: (lon2 * 180) / Math.PI };
 }
 
-export async function computePatrolRoute(center: LatLon, radiusMeters: number, durationSeconds: number, towers: Array<{ latitude: number; longitude: number; rangeMeters: number }>, opts?: { anchors?: number; maxRadius?: number; maxSnapDistance?: number }) {
+export async function computePatrolRoute(center: LatLon, radiusMeters: number, durationSeconds: number, towers: Array<{ latitude: number; longitude: number; rangeMeters: number }>, opts?: { anchors?: number; maxRadius?: number; maxSnapDistance?: number; droneSpeed?: number; circleResolution?: number }) {
   const requestedAnchors = opts?.anchors ?? 6;
   const anchorOptions = [requestedAnchors, Math.max(3, Math.floor(requestedAnchors / 2)), 3];
   const maxRadius = Math.min(opts?.maxRadius ?? 2000, 2000);
@@ -174,6 +174,44 @@ export async function computePatrolRoute(center: LatLon, radiusMeters: number, d
 
       return { ok: true, route: finalCoords, loopDistance, loopDuration, radiusUsed: r, diagnostics };
     }
+  }
+
+  // Last-resort aerial-circle fallback: generate a circular flight path and
+  // validate it against tower coverage. This avoids OSRM snapping failures.
+  try {
+    const droneSpeed = opts?.droneSpeed ?? 10; // m/s
+    const resolution = opts?.circleResolution ?? 12; // points on circle
+    let rA = Math.min(radiusMeters, maxRadius);
+    for (let shrinkAttempt = 0; shrinkAttempt < 6; shrinkAttempt++) {
+      const circlePoints: LatLon[] = [];
+      for (let i = 0; i < resolution; i++) circlePoints.push(pointOnCircle(center, rA, (360 / resolution) * i));
+
+      // ensure loop is closed
+      // validate coverage
+      if (!isGeometryInsideCoverage(circlePoints, towers, 20)) {
+        diagnostics.push({ method: 'aerial_fallback', radiusTried: rA, reason: 'geometry not in coverage' });
+        rA = Math.max(30, Math.floor(rA * 0.8));
+        continue;
+      }
+
+      // compute loop distance
+      let loopDistance = 0;
+      for (let i = 0; i < circlePoints.length; i++) {
+        const a = circlePoints[i];
+        const b = circlePoints[(i + 1) % circlePoints.length];
+        loopDistance += haversineMeters(a.lat, a.lon, b.lat, b.lon);
+      }
+
+      const loopDuration = loopDistance / Math.max(0.1, droneSpeed);
+      const repeats = Math.max(1, Math.ceil(durationSeconds / Math.max(1, loopDuration)));
+      let finalCoords: LatLon[] = [];
+      for (let k = 0; k < repeats; k++) finalCoords = finalCoords.concat(circlePoints);
+
+      diagnostics.push({ method: 'aerial_fallback', radiusUsed: rA, resolution, droneSpeed, loopDistance, loopDuration, repeats });
+      return { ok: true, route: finalCoords, loopDistance, loopDuration, radiusUsed: rA, diagnostics };
+    }
+  } catch (e) {
+    diagnostics.push({ aerialFallbackError: String(e) });
   }
 
   return { ok: false, error: 'unable to compute patrol route within coverage', diagnostics };

@@ -9,10 +9,10 @@ import { Home, Drone, Radio, MapPin, Warehouse, Map, ScrollText, ChevronLeft } f
 const sidebarLinks = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/dashboard/drones", label: "Drones", icon: Drone },
-  { href: "/dashboard/flights", label: "Flights", icon: ScrollText },
   { href: "/dashboard/towers", label: "Towers", icon: Radio },
   { href: "/dashboard/waypoints", label: "Waypoints", icon: MapPin },
   { href: "/dashboard/stations", label: "Stations", icon: Warehouse },
+  { href: "/dashboard/flights", label: "Flights", icon: ScrollText },
   { href: "/dashboard/map", label: "Map View", icon: Map },
 ];
 

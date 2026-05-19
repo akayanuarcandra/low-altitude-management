@@ -84,7 +84,7 @@ export default async function Dashboard() {
             <CardTitle>Quick Actions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <a 
                 href="/dashboard/drones/new" 
                 className="p-4 border rounded-lg hover:bg-gray-50 text-center transition"
