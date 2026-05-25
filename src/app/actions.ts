@@ -13,6 +13,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import computePatrolRoute from "@/lib/patrol-precomputer";
+import OsrmRoutingEngine from "@/lib/osrm-engine";
 
 export async function createTask(formData: FormData) {
   // Normalize form input and delegate to createTaskWithItemsFromJSON so all
@@ -459,6 +460,7 @@ export async function createTaskWithItemsFromJSON(body: any) {
         .values({
           taskId,
           itemId: null,
+          name: null,
           deliveryLatitude: String((nearest as any).latitude),
           deliveryLongitude: String((nearest as any).longitude),
           quantity: body?.quantity ? Number(body.quantity) : 1,
@@ -478,7 +480,10 @@ export async function createTaskWithItemsFromJSON(body: any) {
     }
 
     // items: array of { waypointId?, name?, latitude?, longitude?, quantity?, seq?, assignedDroneId? }
-    for (const it of items) {
+    // First, prepare itemsToInsert with resolved coordinates (and create waypoints when needed).
+    const itemsToInsert: any[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
       let itemId: number | null = null;
       if (it?.waypointId) itemId = Number(it.waypointId);
       if (!itemId && it?.latitude && it?.longitude) {
@@ -543,14 +548,271 @@ export async function createTaskWithItemsFromJSON(body: any) {
         }
       }
 
-      await db.insert(taskItems).values({
+      itemsToInsert.push({
+        originalIndex: i,
         taskId,
         itemId: itemId ?? null,
+        name: it?.name ?? null,
         deliveryLatitude: finalLat,
         deliveryLongitude: finalLon,
         quantity: qty,
         sequence: seqVal,
-      } as any);
+      });
+    }
+
+    // If a drone is assigned, attempt to compute an OSRM-optimized visit order starting from the drone.
+    let optimizedOrder: number[] | null = null; // array of indices in itemsToInsert in visit order
+    try {
+      if (body?.droneId !== undefined && body?.droneId !== null && itemsToInsert.length > 0) {
+        // Resolve drone start location
+        const droneId = Number(body.droneId);
+        const [dr] = await db.select().from(drones).where(eq(drones.id, droneId));
+        if (dr && dr.latitude && dr.longitude) {
+          const start = { lat: Number(dr.latitude), lon: Number(dr.longitude) };
+
+          // Build stops list - require that all items have valid coordinates
+          const stops: any[] = [];
+          let coordsMissing = false;
+          for (const it of itemsToInsert) {
+            const la = it.deliveryLatitude;
+            const lo = it.deliveryLongitude;
+            if (!la || !lo) {
+              coordsMissing = true;
+              break;
+            }
+            const latn = Number(la);
+            const lonn = Number(lo);
+            if (Number.isNaN(latn) || Number.isNaN(lonn)) {
+              coordsMissing = true;
+              break;
+            }
+            stops.push({ lat: latn, lon: lonn });
+          }
+
+          if (!coordsMissing) {
+            const engine = new OsrmRoutingEngine();
+            const res = await engine.computeOptimizedRoute(start, stops, {} as any);
+            if (res && Array.isArray((res as any).waypointOrder) && (res as any).waypointOrder.length > 0) {
+              // waypointOrder refers to indices in [start, ...stops]
+              const wpOrd: number[] = (res as any).waypointOrder;
+              optimizedOrder = wpOrd.filter((n) => n > 0).map((n) => n - 1);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // ignore OSRM failures and fall back to local optimizer below
+      console.warn('osrm optimization failed, falling back', e);
+    }
+
+    // Fallback: if OSRM didn't produce an order, and drone is present, run local TSP/heuristic
+    if (!optimizedOrder && body?.droneId !== undefined && body?.droneId !== null && itemsToInsert.length > 0) {
+      // Recompute start
+      const droneId = Number(body.droneId);
+      const [dr] = await db.select().from(drones).where(eq(drones.id, droneId));
+      if (dr && dr.latitude && dr.longitude) {
+        const startLat = Number(dr.latitude);
+        const startLon = Number(dr.longitude);
+
+        // build numeric coords array
+        const pts = itemsToInsert.map((it) => ({ lat: Number(it.deliveryLatitude), lon: Number(it.deliveryLongitude) }));
+        const N = pts.length;
+        const haversineMeters = (
+          lat1: number,
+          lon1: number,
+          lat2: number,
+          lon2: number,
+        ) => {
+          const R = 6371000; // meters
+          const toRad = (d: number) => (d * Math.PI) / 180;
+          const dLat = toRad(lat2 - lat1);
+          const dLon = toRad(lon2 - lon1);
+          const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRad(lat1)) *
+              Math.cos(toRad(lat2)) *
+              Math.sin(dLon / 2) *
+              Math.sin(dLon / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          return R * c;
+        };
+
+        if (N <= 8) {
+          // Use OSRM distance matrix + exact TSP over that metric
+          try {
+            const { osrmTable } = await import("@/lib/osrm");
+            const tableRes = await osrmTable([ { lat: startLat, lon: startLon }, ...pts ]);
+            const mat = tableRes.distances; // (N+1) x (N+1)
+            if (Array.isArray(mat) && mat.length === N + 1) {
+              const indices = Array.from({ length: N }, (_, i) => i + 1); // indices in mat for stops
+              // permutation generator
+              const permute = (arr: number[]): number[][] => {
+                const res: number[][] = [];
+                const backtrack = (curr: number[], remaining: number[]) => {
+                  if (remaining.length === 0) {
+                    res.push(curr.slice());
+                    return;
+                  }
+                  for (let i = 0; i < remaining.length; i++) {
+                    const next = remaining[i];
+                    curr.push(next);
+                    backtrack(curr, remaining.slice(0, i).concat(remaining.slice(i + 1)));
+                    curr.pop();
+                  }
+                };
+                backtrack([], arr);
+                return res;
+              };
+
+              const perms = permute(indices);
+              let best: number[] | null = null;
+              let bestDist = Infinity;
+              for (const p of perms) {
+                let d = 0;
+                let cur = 0; // start index in matrix
+                for (const idx of p) {
+                  const dd = mat[cur] && Array.isArray(mat[cur]) ? mat[cur][idx] : null;
+                  if (dd === null || dd === undefined || Number.isNaN(dd)) {
+                    d = Infinity; // unreachable
+                    break;
+                  }
+                  d += dd;
+                  cur = idx;
+                }
+                if (d < bestDist) {
+                  bestDist = d;
+                  // convert back to 0-based stops indices
+                  best = p.map((v) => v - 1);
+                }
+              }
+              if (best) optimizedOrder = best;
+            }
+          } catch (e) {
+            // fallback to previous haversine exact TSP if OSRM table fails
+            console.warn('osrm table exact TSP failed, falling back', e);
+            const permute = (arr: number[]): number[][] => {
+              const res: number[][] = [];
+              const backtrack = (curr: number[], remaining: number[]) => {
+                if (remaining.length === 0) {
+                  res.push(curr.slice());
+                  return;
+                }
+                for (let i = 0; i < remaining.length; i++) {
+                  const next = remaining[i];
+                  curr.push(next);
+                  backtrack(curr, remaining.slice(0, i).concat(remaining.slice(i + 1)));
+                  curr.pop();
+                }
+              };
+              backtrack([], arr);
+              return res;
+            };
+
+            const indices = Array.from({ length: N }, (_, i) => i);
+            const perms = permute(indices);
+            let best: number[] | null = null;
+            let bestDist = Infinity;
+            for (const p of perms) {
+              let d = 0;
+              let curLat = startLat;
+              let curLon = startLon;
+              for (const idx of p) {
+                d += haversineMeters(curLat, curLon, pts[idx].lat, pts[idx].lon);
+                curLat = pts[idx].lat;
+                curLon = pts[idx].lon;
+              }
+              if (d < bestDist) {
+                bestDist = d;
+                best = p.slice();
+              }
+            }
+            if (best) optimizedOrder = best;
+          }
+        } else {
+          // For larger N use OSRM table-driven nearest neighbor heuristic (fallback to haversine)
+          try {
+            const { osrmTable } = await import("@/lib/osrm");
+            const tableRes = await osrmTable([ { lat: startLat, lon: startLon }, ...pts ]);
+            const mat = tableRes.distances; // (N+1)x(N+1)
+            if (Array.isArray(mat) && mat.length === N + 1) {
+              const unvisited = new Set<number>(Array.from({ length: N }, (_, i) => i));
+              const order: number[] = [];
+              let cur = 0; // matrix index
+              while (unvisited.size > 0) {
+                let bestIdx: number | null = null;
+                let bestD = Infinity;
+                for (const idx of Array.from(unvisited)) {
+                  const matIdx = idx + 1;
+                  const d = mat[cur] && Array.isArray(mat[cur]) ? mat[cur][matIdx] : null;
+                  if (d === null || d === undefined || Number.isNaN(d)) continue;
+                  if (d < bestD) {
+                    bestD = d;
+                    bestIdx = idx;
+                  }
+                }
+                if (bestIdx === null) break;
+                order.push(bestIdx);
+                unvisited.delete(bestIdx);
+                cur = bestIdx + 1;
+              }
+              optimizedOrder = order;
+            }
+          } catch (e) {
+            // fallback to haversine greedy
+            const unvisited = new Set<number>(Array.from({ length: N }, (_, i) => i));
+            const order: number[] = [];
+            let curLat = startLat;
+            let curLon = startLon;
+            while (unvisited.size > 0) {
+              let bestIdx: number | null = null;
+              let bestD = Infinity;
+              for (const idx of Array.from(unvisited)) {
+                const d = haversineMeters(curLat, curLon, pts[idx].lat, pts[idx].lon);
+                if (d < bestD) {
+                  bestD = d;
+                  bestIdx = idx;
+                }
+              }
+              if (bestIdx === null) break;
+              order.push(bestIdx);
+              unvisited.delete(bestIdx);
+              curLat = pts[bestIdx].lat;
+              curLon = pts[bestIdx].lon;
+            }
+            optimizedOrder = order;
+          }
+        }
+      }
+    }
+
+    // Apply ordering (if present) and assign sequence numbers; otherwise preserve provided seq or insertion order
+    let finalInsertList = itemsToInsert.slice();
+    if (Array.isArray(optimizedOrder) && optimizedOrder.length === itemsToInsert.length) {
+      finalInsertList = optimizedOrder.map((idx, seq) => ({
+        taskId: itemsToInsert[idx].taskId,
+        itemId: itemsToInsert[idx].itemId,
+        name: itemsToInsert[idx].name,
+        deliveryLatitude: itemsToInsert[idx].deliveryLatitude,
+        deliveryLongitude: itemsToInsert[idx].deliveryLongitude,
+        quantity: itemsToInsert[idx].quantity,
+        sequence: seq,
+      }));
+    } else {
+      // Preserve original order but set sequence to requested seq or index
+      finalInsertList = itemsToInsert.map((it, idx) => ({
+        taskId: it.taskId,
+        itemId: it.itemId,
+        name: it.name,
+        deliveryLatitude: it.deliveryLatitude,
+        deliveryLongitude: it.deliveryLongitude,
+        quantity: it.quantity,
+        sequence: idx,
+      }));
+    }
+
+    // Insert all task items in one batch
+    if (finalInsertList.length > 0) {
+      await db.insert(taskItems).values(finalInsertList as any);
     }
 
     revalidatePath("/dashboard/map");

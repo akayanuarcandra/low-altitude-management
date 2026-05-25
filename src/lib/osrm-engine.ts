@@ -16,6 +16,7 @@ export class OsrmRoutingEngine implements RoutingEngine {
             distance: trip.distance,
             duration: trip.duration,
             usedTrip: true,
+            waypointOrder: trip.waypointOrder,
             raw: trip.raw,
           } as RouteResult;
         }

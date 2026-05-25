@@ -164,3 +164,22 @@ export async function osrmNearest(point: LatLon) {
   const loc = data.waypoints![0].location; // [lon, lat]
   return { lat: loc![1], lon: loc![0], raw: data };
 }
+
+/**
+ * Call OSRM /table service to get pairwise distances between provided points.
+ * Returns { distances: number[][] } where distances[i][j] is meters from i->j.
+ */
+export async function osrmTable(points: LatLon[]) {
+  if (!points || points.length < 2) return { distances: [] };
+  const coordStr = points.map((p) => `${p.lon},${p.lat}`).join(";");
+  const qs = new URLSearchParams({ annotations: "distance" });
+  const url = `${OSRM_BASE}/table/v1/driving/${coordStr}?${qs.toString()}`;
+  const res = await safeFetchJson(url, 20000, 2);
+  if (!res || !res.ok) throw new Error(`OSRM table call failed`);
+  const data = res.json as any;
+  if (!data || data.code !== "Ok" || !Array.isArray(data.distances)) {
+    throw new Error(`OSRM table returned no distances`);
+  }
+  // data.distances is a 2D array in meters (null for unreachable)
+  return { distances: data.distances as number[][], raw: data };
+}

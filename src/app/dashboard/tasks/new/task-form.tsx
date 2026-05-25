@@ -27,11 +27,13 @@ export default function TaskForm({
   const [waypoints, setWaypoints] = useState<
     Array<{ id: number; name: string; latitude: number; longitude: number }>
   >([]);
-  const [selectedWaypointId, setSelectedWaypointId] = useState<number | null>(
-    null,
-  );
-  // Task-level quantity (displayed below description)
-  const [quantity, setQuantity] = useState<number>(1);
+  
+  // Items array for delivery tasks: { name, waypointId, quantity }
+  const [items, setItems] = useState<Array<{ name?: string; waypointId?: number | null; quantity: number }>>([]);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [itemName, setItemName] = useState("");
+  const [itemWaypointId, setItemWaypointId] = useState<number | null>(null);
+  const [itemQuantity, setItemQuantity] = useState<number>(1);
   // patrol state (kept for compatibility but unused — UI no longer exposes patrol)
   const [patrolRadiusMeters, setPatrolRadiusMeters] = useState<number>(80);
   const [patrolDurationSeconds, setPatrolDurationSeconds] = useState<number>(300);
@@ -48,7 +50,7 @@ export default function TaskForm({
           const t = initialTask.task;
           setTitle(t.title || "");
           setDescription(t.description || "");
-          setQuantity(Number(t.quantity) || 1);
+          // task-level quantity removed; items carry their own quantities
           if (t?.patrolRadiusMeters !== undefined && t?.patrolRadiusMeters !== null) {
             const n = Number(t.patrolRadiusMeters);
             if (!Number.isNaN(n)) setPatrolRadiusMeters(n);
@@ -59,8 +61,13 @@ export default function TaskForm({
           }
           if (Array.isArray(initialTask.items) && initialTask.items.length > 0) {
             setCategory("delivery");
-            const it = initialTask.items[0];
-            if (it && it.itemId) setSelectedWaypointId(Number(it.itemId));
+            // Prefill items list when editing
+            const pref = initialTask.items.map((it: any) => ({
+              name: it?.name ?? undefined,
+              waypointId: it?.itemId ?? null,
+              quantity: Number(it?.quantity) || 1,
+            }));
+            setItems(pref);
           }
         }
     } catch {
@@ -84,26 +91,14 @@ export default function TaskForm({
     };
   }, []);
 
-  // Auto-fill title with selected waypoint name when title is empty
-  useEffect(() => {
-    try {
-      if (selectedWaypointId && title.trim() === "") {
-        const wp = waypoints.find((w) => w.id === selectedWaypointId);
-        if (wp && wp.name) setTitle(wp.name);
-      }
-    } catch {
-      // ignore
-    }
-  }, [selectedWaypointId, waypoints, title]);
+  // No task-level target; items now carry targets.
 
   // When the category is set to 'return', auto-fill the title and clear other fields.
   useEffect(() => {
     try {
-      if (category === "return") {
+        if (category === "return") {
         setTitle("Return to Nearby Station");
         setDescription("");
-        setQuantity(1);
-        setSelectedWaypointId(null);
       }
     if (category === "patrol") {
       // Although patrol category is no longer selectable in the UI, preserve
@@ -140,27 +135,50 @@ export default function TaskForm({
       payload.durationSeconds = Number(patrolDurationSeconds);
     }
 
-    // include quantity only for delivery tasks (patrol/return don't use it)
-    if (category === "delivery") payload.quantity = Number(quantity) || 1;
+    // Items carry their own quantities; do not include any task-level quantity
 
     if (category === "delivery") {
-      if (!selectedWaypointId) {
-        setMessage("Please select a waypoint");
+      // If items were added via the items UI, use them. Otherwise fall back to single selectedWaypointId.
+      if (items.length > 0) {
+        payload.items = items.map((it, idx) => ({
+          waypointId: it.waypointId ?? undefined,
+          name: it.name ?? undefined,
+          latitude: undefined,
+          longitude: undefined,
+          quantity: Number(it.quantity) || 1,
+          seq: idx,
+          assignedDroneId: initialDroneId ?? null,
+        }));
+      } else {
+        setMessage("Please add at least one item for delivery tasks");
         return;
       }
-      payload.items = [
-        {
-          waypointId: selectedWaypointId,
-          quantity: Number(quantity) || 1,
-          seq: 0,
-          assignedDroneId: initialDroneId ?? null,
-        },
-      ];
     }
     // Patrol creation is disabled; the frontend no longer exposes patrol fields.
 
     try {
       setLoading(true);
+
+      // Client-side coverage check: ask server whether any item is outside tower coverage.
+      // If so, present the error and let user fix the form.
+      if (category === "delivery") {
+        try {
+          const covRes = await fetch("/api/coverage/check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ items: payload.items || [] }),
+          });
+          const covJson = await covRes.json();
+          if (!covJson.ok) {
+            setMessage(covJson.error || "One or more items are outside coverage");
+            setLoading(false);
+            return;
+          }
+        } catch (err) {
+          // if coverage check fails unexpectedly, allow creation to proceed but log
+          console.warn('coverage check failed', err);
+        }
+      }
 
       if (isEditing) {
         const taskId = Number(initialTask.task.id);
@@ -243,8 +261,7 @@ export default function TaskForm({
           if (!onSuccess) setMessage("Task created");
           setTitle("");
           setDescription("");
-          setSelectedWaypointId(null);
-          setQuantity(1);
+          setItems([]);
           setPatrolRadiusMeters(80);
           const createdId = (data as any).taskId ?? (data as any).id ?? null;
           if (onSuccess) onSuccess(createdId);
@@ -341,35 +358,68 @@ export default function TaskForm({
             />
           </div>
 
-          <div>
-            <label className="block text-sm">Quantity</label>
-            <input
-              type="number"
-              min={1}
-              value={quantity}
-              onChange={(e) => setQuantity(parseInt(e.target.value || "1"))}
-              className="mt-1 block w-full border rounded px-2 py-1"
-            />
-          </div>
+          {/* Task-level quantity removed; items carry their own quantities */}
 
-          <div className="mt-2">
-            <label className="block text-sm">Target</label>
-            <select
-              value={selectedWaypointId ?? ""}
-              onChange={(e) =>
-                setSelectedWaypointId(
-                  e.target.value ? parseInt(e.target.value) : null,
-                )
-              }
-              className="mt-1 block w-full border rounded px-2 py-1"
-            >
-              <option value="">Select a waypoint...</option>
-              {waypoints.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name} — {w.latitude.toFixed(6)}, {w.longitude.toFixed(6)}
-                </option>
-              ))}
-            </select>
+          {/* Task-level global target removed: items carry their own targets now. */}
+
+          {/* Items list and add-item form */}
+          <div className="mt-4">
+            <label className="block text-sm">Items</label>
+            <div className="mt-2 space-y-2">
+              {items.length === 0 && (
+                <div className="text-sm text-gray-500">No items added — you can add one below or select a target to create a single item.</div>
+              )}
+              {items.map((it, idx) => {
+                const wp = waypoints.find((w) => w.id === it.waypointId);
+                return (
+                  <div key={idx} className="flex items-center justify-between border rounded p-2">
+                    <div>
+                      <div className="font-medium">{it.name ?? (wp ? wp.name : "Unnamed item")}</div>
+                      <div className="text-xs text-gray-500">{wp ? `${wp.name} — ${wp.latitude.toFixed(6)}, ${wp.longitude.toFixed(6)}` : "Custom coordinates"}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm">Qty: {it.quantity}</div>
+                      <button type="button" className="text-sm text-red-600" onClick={() => setItems(items.filter((_, i) => i !== idx))}>Remove</button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {showAddItem ? (
+                <div className="border rounded p-3 space-y-2">
+                  <div>
+                    <label className="block text-sm">Item name</label>
+                    <input className="mt-1 block w-full border rounded px-2 py-1" value={itemName} onChange={(e) => setItemName(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm">Target waypoint</label>
+                    <select value={itemWaypointId ?? ""} onChange={(e) => setItemWaypointId(e.target.value ? parseInt(e.target.value) : null)} className="mt-1 block w-full border rounded px-2 py-1">
+                      <option value="">Select a waypoint...</option>
+                      {waypoints.map((w) => (
+                        <option key={w.id} value={w.id}>{w.name} — {w.latitude.toFixed(6)}, {w.longitude.toFixed(6)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm">Quantity</label>
+                    <input type="number" min={1} value={itemQuantity} onChange={(e) => setItemQuantity(parseInt(e.target.value || "1"))} className="mt-1 block w-full border rounded px-2 py-1" />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" onClick={() => {
+                      // add item
+                      setItems([...items, { name: itemName || undefined, waypointId: itemWaypointId ?? null, quantity: Number(itemQuantity) || 1 }]);
+                      // reset
+                      setItemName(""); setItemWaypointId(null); setItemQuantity(1); setShowAddItem(false);
+                    }}>Add Item</Button>
+                    <Button type="button" variant="ghost" onClick={() => { setShowAddItem(false); setItemName(""); setItemWaypointId(null); setItemQuantity(1); }}>Cancel</Button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <Button type="button" onClick={() => setShowAddItem(true)}>Add Item</Button>
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}

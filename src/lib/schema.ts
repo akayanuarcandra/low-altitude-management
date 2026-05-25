@@ -105,6 +105,7 @@ export const taskItems = pgTable(
     id: serial("id").primaryKey(),
     taskId: integer("task_id").notNull(),
     itemId: integer("item_id"),
+    name: text("name"),
     quantity: integer("quantity").notNull().default(1),
     deliveryLatitude: decimal("delivery_latitude", {
       precision: 10,
