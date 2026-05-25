@@ -553,7 +553,12 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
             entry.marker.setLatLng([Number(station.latitude), Number(station.longitude)]);
             // update popup content if present
             try {
-              entry.marker.setPopupContent(entry.marker.getPopup ? entry.marker.getPopup().getContent() : null);
+              const popup = entry.marker.getPopup ? entry.marker.getPopup() : undefined;
+              const content = popup ? popup.getContent() : undefined;
+              if (content !== undefined && content !== null) {
+                // Leaflet setPopupContent expects Content | Popup; cast to any to satisfy TS
+                entry.marker.setPopupContent(content as any);
+              }
             } catch {}
           }
         } catch (e) {
@@ -701,9 +706,13 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
         const entry = deployedDronesRef.current.get(selectedInventoryDrone);
         if (entry && entry.marker) {
           entry.marker.setLatLng([Number(matchedStation.latitude), Number(matchedStation.longitude)]);
-          try {
-            entry.marker.setPopupContent(entry.marker.getPopup ? entry.marker.getPopup().getContent() : null);
-          } catch {}
+            try {
+              const popup = entry.marker.getPopup ? entry.marker.getPopup() : undefined;
+              const content = popup ? popup.getContent() : undefined;
+              if (content !== undefined && content !== null) {
+                entry.marker.setPopupContent(content as any);
+              }
+            } catch {}
         }
       } catch (e) {
         // ignore

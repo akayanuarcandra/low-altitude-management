@@ -73,7 +73,7 @@ export default async function DronesPage() {
                 <p className="text-sm text-gray-600 mb-2">
                   Deployed drones (view/manage on Map):
                 </p>
-                <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-700">
+                <div className="bg-blue-50 border border-blue-200 rounded p-5 text-sm text-blue-700">
                   {items.filter((d) => d.latitude && d.longitude).length}{" "}
                   drone(s) deployed. Go to the Map page to manage them.
                 </div>

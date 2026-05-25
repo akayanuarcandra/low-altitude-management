@@ -260,7 +260,7 @@ export default function TaskListModal({
               </div>
             </div>
           </CardHeader>
-          <div className="space-y-3 px-4">
+          <div className="space-y-3">
             {tasks.length === 0 && (
               <div className="text-sm text-gray-500">
                 No pending tasks available for this drone.
@@ -281,31 +281,12 @@ export default function TaskListModal({
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={async () => {
-                      try {
-                        const id = Number(t.task.id);
-                        if (Number.isNaN(id)) {
-                          alert("Invalid task id");
-                          return;
-                        }
-                        const res = await fetch(`/api/tasks/${id}`);
-                        const data = await res.json();
-                        if (data.ok) {
-                          setEditingTask(data);
-                          setShowEditModal(true);
-                        } else {
-                          alert("Failed to load task for editing");
-                        }
-                      } catch (err) {
-                        console.error(err);
-                        alert("Failed to load task for editing");
-                      }
-                    }}
-                  >
-                    Edit
+                  <Button size="sm" variant="ghost" onClick={() => {
+                    // Open the Task modal but show the 3-button action chooser instead of editing
+                    setEditingTask(null);
+                    setShowEditModal(true);
+                  }}>
+                    View
                   </Button>
                   <Button
                     size="sm"
@@ -393,7 +374,7 @@ export default function TaskListModal({
             ))}
           </div>
 
-          <div className="mt-4 flex justify-end gap-2 px-4">
+          <div className="mt-4 flex justify-end gap-2">
             <Button onClick={runAll} disabled={loading || tasks.length === 0}>
               {loading ? "Starting..." : "Run All for This Drone"}
             </Button>

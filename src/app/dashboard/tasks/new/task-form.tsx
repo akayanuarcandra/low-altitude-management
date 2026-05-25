@@ -329,18 +329,7 @@ export default function TaskForm({
         <div className="p-2 bg-red-100 text-red-800 rounded">{message}</div>
       )}
 
-      <div>
-        <label className="block text-sm">Category</label>
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value as any)}
-          className="mt-1 block w-full border rounded px-2 py-1"
-        >
-          <option value="delivery">Delivery</option>
-          <option value="return">Return to nearest station</option>
-          <option value="patrol">Patrol area</option>
-        </select>
-      </div>
+      {/* Category is selected via the 3-button action chooser; default to 'delivery' here. */}
 
       {category === "delivery" && (
         <>
@@ -468,9 +457,9 @@ export default function TaskForm({
             ? isEditing
               ? "Updating..."
               : "Creating..."
-            : isEditing
-              ? "Update Task"
-              : "Create Task"}
+          : isEditing
+            ? "Update Task"
+            : "Create Task"}
         </Button>
       </div>
     </form>
