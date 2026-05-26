@@ -149,8 +149,21 @@ export default function PatrolModal({
 
   // Render modal into document.body via portal so it doesn't block map container
   const content = (
-    <div className="fixed z-50 right-6 top-6 pointer-events-none">
-      <div className="bg-white p-6 rounded shadow-lg w-96 pointer-events-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* backdrop */}
+      <div
+        className="absolute inset-0 bg-black/50"
+        onClick={() => {
+          try { cancelPatrol(); } catch {};
+          try { clearPreview(); } catch {};
+          onClose && onClose();
+        }}
+      />
+
+      <div
+        className="bg-white p-6 rounded shadow-lg w-full max-w-md z-10"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 className="text-lg font-semibold">Start Patrol for {drone?.name ?? 'Drone'}</h3>
         <div className="mt-4 space-y-2">
           <label className="block text-sm text-gray-600">Radius (meters)</label>
