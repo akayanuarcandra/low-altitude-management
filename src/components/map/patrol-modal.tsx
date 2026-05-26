@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import computePatrolRouteClient from "@/lib/patrol-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,9 +147,10 @@ export default function PatrolModal({
     onClose && onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="bg-white p-6 rounded shadow-lg w-96">
+  // Render modal into document.body via portal so it doesn't block map container
+  const content = (
+    <div className="fixed z-50 right-6 top-6 pointer-events-none">
+      <div className="bg-white p-6 rounded shadow-lg w-96 pointer-events-auto">
         <h3 className="text-lg font-semibold">Start Patrol for {drone?.name ?? 'Drone'}</h3>
         <div className="mt-4 space-y-2">
           <label className="block text-sm text-gray-600">Radius (meters)</label>
@@ -169,4 +171,7 @@ export default function PatrolModal({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
 }
