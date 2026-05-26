@@ -305,7 +305,10 @@ export async function createTaskWithItemsFromJSON(body: any) {
       }
 
       const center = { lat: Number(startLat), lon: Number(startLon) };
-      const pre = await computePatrolRoute(center, radius, duration, towerList, { anchors: 6, maxRadius: 2000 });
+      // Force aerial-only computation for simple patrol (no OSRM/precomputed routes)
+      // Use Dijkstra-based precomputer to build a road-following loop
+      const { default: computePatrolRouteDijkstra } = await import("@/lib/patrol-dijkstra");
+      const pre = await computePatrolRouteDijkstra(center, radius, duration, { anchors: 6, edgeThresholdMeters: 300, droneSpeed: 10 });
       if (!pre.ok) {
         return { ok: false, error: pre.error, diagnostics: pre.diagnostics };
       }
@@ -329,40 +332,9 @@ export async function createTaskWithItemsFromJSON(body: any) {
         } as any).returning();
         const patrolId = (patIns as any)?.id ?? null;
 
-        // Quick fix: create synthetic TaskItems sampled from the computed route so
-        // the existing drone runner (which expects TaskItems) will execute the patrol.
-        try {
-          const coords = Array.isArray(pre.route) ? pre.route : [];
-          const maxStops = 12;
-          const step = Math.max(1, Math.ceil(coords.length / maxStops));
-          let sampled: any[] = coords.filter((_: any, i: number) => i % step === 0);
-          // ensure at least 3 stops
-          if (sampled.length < 3) {
-            sampled = coords.slice(0, 3);
-          }
-          const itemsToInsert = sampled.map((p: any, idx: number) => ({
-            taskId,
-            itemId: null,
-            deliveryLatitude: String(p.lat ?? p.latitude),
-            deliveryLongitude: String(p.lon ?? p.longitude),
-            quantity: 1,
-            sequence: idx,
-          }));
-
-          if (itemsToInsert.length > 0) {
-            await db.insert(taskItems).values(itemsToInsert as any);
-          }
-        } catch (e) {
-          // Rollback: delete created patrol and task to avoid orphaned tasks
-          try {
-            if (patrolId) await db.delete(patrols).where(eq(patrols.id, patrolId));
-            await db.delete(tasks).where(eq(tasks.id, taskId));
-          } catch (delErr) {
-            console.error('failed to rollback patrol/task after taskItems insert failure', delErr);
-          }
-          console.error('failed to insert task items for patrol', e);
-          return { ok: false, error: 'failed to create patrol task items' };
-        }
+        // Patrol route persisted in patrols.routeJson. We intentionally do not
+        // create TaskItems for patrol tasks — the runner will execute patrols
+        // by following the stored routeJson directly.
       } catch (e) {
         console.error('failed to persist patrol', e);
       }

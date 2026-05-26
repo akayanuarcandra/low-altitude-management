@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tasks, taskItems, towers, drones, precomputedRoutes, waypoints } from "@/lib/schema";
+import { tasks, taskItems, towers, drones, precomputedRoutes, waypoints, patrols } from "@/lib/schema";
 import { eq, and, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import OsrmRoutingEngine from "@/lib/osrm-engine";
@@ -104,6 +104,26 @@ export async function POST(req: Request) {
 
       for (const [dId, tasksForDrone] of byDrone.entries()) {
         try {
+          // Check for any precomputed patrol for this drone and attach to the
+          // first started task that has no TaskItems. Patrols are persisted
+          // separately in the patrols table and do not create TaskItems.
+          let patrolForDrone: any = null;
+          try {
+            const patRows = await db.select().from(patrols).where(eq(patrols.droneId, dId));
+            if (Array.isArray(patRows) && patRows.length > 0) {
+              // pick the most recent precomputed patrol first
+              patRows.sort((a: any, b: any) => {
+                const ta = new Date(a.createdAt).getTime();
+                const tb = new Date(b.createdAt).getTime();
+                return tb - ta;
+              });
+              patrolForDrone = patRows.find((p: any) => String(p.status) === 'precomputed') || patRows[0];
+            }
+          } catch (e) {
+            // ignore DB errors and continue without patrol
+            console.debug('run-for-drone: failed to fetch patrols', e);
+            patrolForDrone = null;
+          }
           // build stops: preserve first-seen order and dedupe by lat/lon
           const stopsMap = new Map<string, { lat: number; lon: number; origKeys: string[]; }>();
           const itemsList: Array<{ parentTask: any; item: any }> = [];
@@ -135,6 +155,42 @@ export async function POST(req: Request) {
 
           const stopsCoords = Array.from(stopsMap.values()).map((v) => ({ lat: v.lat, lon: v.lon }));
           if (stopsCoords.length === 0) {
+            // If there are no delivery stops but a precomputed patrol exists for
+            // this drone, attach the patrol route to started tasks that have no
+            // TaskItems. Persist patrol status as started so the runner can pick
+            // it up.
+            if (patrolForDrone) {
+              let routeCoords: Array<{lat:number,lon:number}> = [];
+              try {
+                routeCoords = JSON.parse(String(patrolForDrone.routeJson));
+              } catch (e) {
+                routeCoords = [];
+              }
+              if (routeCoords && routeCoords.length > 0) {
+                for (const s of tasksForDrone) {
+                  const items = s.items || [];
+                  if (!items || items.length === 0) {
+                    s.route = routeCoords;
+                    s.patrol = {
+                      id: patrolForDrone.id,
+                      radiusMeters: Number(patrolForDrone.radiusMeters),
+                      durationSeconds: Number(patrolForDrone.durationSeconds),
+                      routeDistanceM: patrolForDrone.routeDistanceM,
+                      routeDurationS: patrolForDrone.routeDurationS,
+                      status: patrolForDrone.status,
+                    };
+                    s.itemsRouteIndices = [];
+                  }
+                }
+                try {
+                  await db.update(patrols).set({ status: 'started', startedAt: new Date() }).where(eq(patrols.id, patrolForDrone.id));
+                } catch (e) {
+                  console.debug('run-for-drone: failed to mark patrol started', e);
+                }
+                // we've attached a patrol route for this drone; skip regular routing
+                continue;
+              }
+            }
             // nothing to route for this drone
             continue;
           }

@@ -28,7 +28,7 @@ function pointOnCircle(center: LatLon, radiusMeters: number, angleDeg: number): 
   return { lat: (lat2 * 180) / Math.PI, lon: (lon2 * 180) / Math.PI };
 }
 
-export async function computePatrolRoute(center: LatLon, radiusMeters: number, durationSeconds: number, towers: Array<{ latitude: number; longitude: number; rangeMeters: number }>, opts?: { anchors?: number; maxRadius?: number; maxSnapDistance?: number; droneSpeed?: number; circleResolution?: number }) {
+export async function computePatrolRoute(center: LatLon, radiusMeters: number, durationSeconds: number, towers: Array<{ latitude: number; longitude: number; rangeMeters: number }>, opts?: { anchors?: number; maxRadius?: number; maxSnapDistance?: number; droneSpeed?: number; circleResolution?: number; forceAerial?: boolean }) {
   const requestedAnchors = opts?.anchors ?? 6;
   const anchorOptions = [requestedAnchors, Math.max(3, Math.floor(requestedAnchors / 2)), 3];
   const maxRadius = Math.min(opts?.maxRadius ?? 2000, 2000);
@@ -40,6 +40,42 @@ export async function computePatrolRoute(center: LatLon, radiusMeters: number, d
   const diagnostics: any[] = [];
 
   // Try precomputedRoutes fallback first — look for recent routes that pass through the circle
+  // If caller requests simple aerial-circle only, skip precomputed/OSRM attempts
+  if (opts?.forceAerial) {
+    // jump to aerial fallback (reuse code below)
+    try {
+      const droneSpeed = opts?.droneSpeed ?? 10; // m/s
+      const resolution = opts?.circleResolution ?? 12; // points on circle
+      let rA = Math.min(radiusMeters, maxRadius);
+      for (let shrinkAttempt = 0; shrinkAttempt < 6; shrinkAttempt++) {
+        const circlePoints: LatLon[] = [];
+        for (let i = 0; i < resolution; i++) circlePoints.push(pointOnCircle(center, rA, (360 / resolution) * i));
+
+        if (!isGeometryInsideCoverage(circlePoints, towers, 20)) {
+          rA = Math.max(30, Math.floor(rA * 0.8));
+          continue;
+        }
+
+        // compute loop distance
+        let loopDistance = 0;
+        for (let i = 0; i < circlePoints.length; i++) {
+          const a = circlePoints[i];
+          const b = circlePoints[(i + 1) % circlePoints.length];
+          loopDistance += haversineMeters(a.lat, a.lon, b.lat, b.lon);
+        }
+
+        const loopDuration = loopDistance / Math.max(0.1, droneSpeed);
+        const repeats = Math.max(1, Math.ceil(durationSeconds / Math.max(1, loopDuration)));
+        let finalCoords: LatLon[] = [];
+        for (let k = 0; k < repeats; k++) finalCoords = finalCoords.concat(circlePoints);
+
+        return { ok: true, route: finalCoords, loopDistance, loopDuration, radiusUsed: rA, diagnostics: [{ method: 'aerial_forced' }] };
+      }
+    } catch (e) {
+      return { ok: false, error: 'aerial fallback error', diagnostics: [{ aerialFallbackError: String(e) }] };
+    }
+  }
+
   try {
     const rows: any[] = await db.select().from(precomputedRoutes).orderBy().limit(30) as any;
     // Note: orderBy() without args returns unspecific order in drizzle; limit reduces cost

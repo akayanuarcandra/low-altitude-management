@@ -45,8 +45,9 @@ export default function TaskModal({
   const closeTimerRef = React.useRef<number | null>(null);
   const openTimerRef = React.useRef<number | null>(null);
 
-  const animateSetShowAdd = (next: boolean) => {
-    if (next === showAdd) return;
+  const [addMode, setAddMode] = React.useState<'delivery' | 'patrol'>('delivery');
+  const animateSetShowAdd = (next: boolean, mode?: 'delivery' | 'patrol') => {
+    if (next === showAdd && (!next || mode === undefined || mode === addMode)) return;
     // play card close animation
     setCardOpen(false);
 
@@ -56,6 +57,7 @@ export default function TaskModal({
       closeTimerRef.current = null;
     }
     closeTimerRef.current = window.setTimeout(() => {
+      if (mode) setAddMode(mode);
       setShowAdd(next);
 
       // wait a little longer than the child's exit animation to avoid a flash
@@ -152,7 +154,8 @@ export default function TaskModal({
               initialDroneName={initialDroneName}
               onClose={closeWithAnim}
               showAdd={showAdd}
-              setShowAdd={(v) => animateSetShowAdd(v)}
+              setShowAdd={(v: boolean, mode?: 'delivery' | 'patrol') => animateSetShowAdd(v, mode)}
+              addMode={addMode}
             />
           </CardContent>
         </Card>

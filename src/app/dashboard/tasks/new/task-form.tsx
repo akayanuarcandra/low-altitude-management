@@ -9,16 +9,18 @@ export default function TaskForm({
   initialDroneName,
   onSuccess,
   initialTask,
+  initialCategory,
 }: {
   initialDroneId?: number;
   initialDroneName?: string;
   onSuccess?: (id: number) => void;
   initialTask?: any;
+  initialCategory?: 'delivery' | 'patrol' | 'return';
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<"delivery" | "return" | "patrol">(
-    "delivery",
+    initialCategory ?? "delivery",
   );
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);

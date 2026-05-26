@@ -10,12 +10,15 @@ export default function TaskActionArea({
   onClose,
   showAdd,
   setShowAdd,
+  addMode,
 }: {
   initialDroneId?: number;
   initialDroneName?: string;
   onClose?: () => void;
   showAdd: boolean;
-  setShowAdd: (v: boolean) => void;
+  // Parent may optionally accept a second param 'mode' when animating
+  setShowAdd: (v: boolean, mode?: 'delivery' | 'patrol') => void;
+  addMode?: 'delivery' | 'patrol';
 }) {
   const [loadingReturn, setLoadingReturn] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
@@ -51,11 +54,17 @@ export default function TaskActionArea({
     };
   }, [showAdd]);
 
-  const handleDelivery = () => setShowAdd(true);
+  const handleDelivery = () => setShowAdd(true, 'delivery');
 
   const handlePatrol = () => {
-    setMessage("Patrol is coming soon");
-    setTimeout(() => setMessage(null), 2500);
+    // open the add form in patrol mode
+    try {
+      // If the parent setShowAdd accepts a second parameter (mode), pass 'patrol'
+      // Note: we typed setShowAdd as simple setter; use a type hack to call with extra arg when available
+      (setShowAdd as any)(true, 'patrol');
+    } catch (e) {
+      setShowAdd(true);
+    }
   };
 
   const handleReturn = async () => {
@@ -142,7 +151,7 @@ export default function TaskActionArea({
 
         {currentView === 'form' && (
           <div className={"transform transition-all duration-200 " + (showAdd ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none") }>
-            <TaskForm initialDroneId={initialDroneId} initialDroneName={initialDroneName} onSuccess={() => { if (onClose) onClose(); }} />
+            <TaskForm initialDroneId={initialDroneId} initialDroneName={initialDroneName} initialCategory={addMode ?? 'delivery'} onSuccess={() => { if (onClose) onClose(); }} />
           </div>
         )}
       </div>

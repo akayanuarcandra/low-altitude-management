@@ -13,6 +13,7 @@ import {
   isWithinTowerCoverage,
 } from "@/lib/map-utils/geometry";
 import { setupMapLayers } from "./map-setup";
+import PatrolModal from "./patrol-modal";
 import TaskModal from "@/components/tasks/task-modal";
 import {
   findPathBidirectionalDijkstra,
@@ -357,6 +358,10 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
     undefined,
   );
 
+  // Patrol modal state
+  const [showPatrolModal, setShowPatrolModal] = useState(false);
+  const [patrolDroneId, setPatrolDroneId] = useState<number | undefined>(undefined);
+
   // Tasks list modal state
   const [showTasksModal, setShowTasksModal] = useState(false);
   const [tasksModalDroneId, setTasksModalDroneId] = useState<
@@ -488,6 +493,16 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
             try {
               window.open(`/dashboard/tasks/new?droneId=${droneId}`, "_blank");
             } catch {}
+          }
+        };
+
+        // Expose a handler to open the Patrol modal for a drone
+        (window as any).openPatrolForDrone = (droneId: number) => {
+          try {
+            setShowPatrolModal(true);
+            setPatrolDroneId(droneId);
+          } catch (err) {
+            console.error("openPatrolForDrone failed", err);
           }
         };
 
@@ -1094,6 +1109,22 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
             setTaskModalDroneId(undefined);
           }}
         />
+      )}
+      {showPatrolModal && patrolDroneId !== undefined && (
+        // Lazy-load PatrolModal to avoid SSR issues
+        <React.Suspense>
+          <PatrolModal
+            droneId={patrolDroneId}
+            drone={drones.find((d)=>d.id===patrolDroneId)}
+            waypoints={waypoints}
+            mapRef={mapRef}
+            L={L}
+            deployedDronesRef={deployedDronesRef}
+            droneAnimationStateRef={droneAnimationStateRef}
+            onClose={() => { setShowPatrolModal(false); setPatrolDroneId(undefined); }}
+            setAlert={setAlert}
+          />
+        </React.Suspense>
       )}
     </div>
   );
