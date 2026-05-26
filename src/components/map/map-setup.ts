@@ -141,6 +141,22 @@ export function setupMapLayers(
             } else {
               existingEntry.marker.bindPopup(popupHtml);
             }
+            // Ensure patrol click handler is attached when popup opens
+            try {
+              existingEntry.marker.off && existingEntry.marker.off('popupopen');
+            } catch {}
+            try {
+              existingEntry.marker.on && existingEntry.marker.on('popupopen', () => {
+                try {
+                  const el = document.getElementById(`patrol-btn-${drone.id}`);
+                  if (el) {
+                    el.addEventListener('click', () => {
+                      try { (window as any).openPatrolForDrone && (window as any).openPatrolForDrone(drone.id); } catch (e) { console.error('openPatrolForDrone failed', e); }
+                    });
+                  }
+                } catch (e) { }
+              });
+            } catch (e) {}
           } catch (e) {
             // ignore transient errors (marker removal etc.)
           }
