@@ -56,16 +56,7 @@ export default function TaskActionArea({
 
   const handleDelivery = () => setShowAdd(true, 'delivery');
 
-  const handlePatrol = () => {
-    // open the add form in patrol mode
-    try {
-      // If the parent setShowAdd accepts a second parameter (mode), pass 'patrol'
-      // Note: we typed setShowAdd as simple setter; use a type hack to call with extra arg when available
-      (setShowAdd as any)(true, 'patrol');
-    } catch (e) {
-      setShowAdd(true);
-    }
-  };
+  // Patrol mode removed from task creation UI
 
   const handleReturn = async () => {
     if (!initialDroneId) {

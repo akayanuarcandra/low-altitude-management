@@ -13,7 +13,7 @@ import {
   isWithinTowerCoverage,
 } from "@/lib/map-utils/geometry";
 import { setupMapLayers } from "./map-setup";
-import PatrolModal from "./patrol-modal";
+import computePatrolRouteClient from "@/lib/patrol-client";
 import TaskModal from "@/components/tasks/task-modal";
 import {
   findPathBidirectionalDijkstra,
@@ -89,6 +89,11 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
   const droneAnimationStateRef = useRef<
     Map<number, { animating: boolean; cancel: () => void }>
   >(new Map());
+
+  // Track whether a patrol loop is active for a given drone. This is a higher-level
+  // cancellation token so the patrol runner can stop starting new loops when another
+  // operation (Fly/Stop/Return) requests cancellation.
+  const patrolActiveRef = useRef<Map<number, boolean>>(new Map());
 
   // (Patrol controllers removed)
 
@@ -358,9 +363,7 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
     undefined,
   );
 
-  // Patrol modal state
-  const [showPatrolModal, setShowPatrolModal] = useState(false);
-  const [patrolDroneId, setPatrolDroneId] = useState<number | undefined>(undefined);
+  // (Patrol UI state removed; prompting flow used instead)
 
   // Tasks list modal state
   const [showTasksModal, setShowTasksModal] = useState(false);
@@ -496,13 +499,206 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
           }
         };
 
-        // Expose a handler to open the Patrol modal for a drone
-        (window as any).openPatrolForDrone = (droneId: number) => {
+        // Expose a handler to start a Patrol for a drone using simple prompts
+        (window as any).openPatrolForDrone = async (droneId: number) => {
           try {
-            setShowPatrolModal(true);
-            setPatrolDroneId(droneId);
+            const drone = drones.find((d) => d.id === droneId);
+            const entry = deployedDronesRef.current.get(droneId);
+            const marker = entry?.marker;
+            let center: { lat: number; lon: number } | null = null;
+            if (marker) {
+              const ll = marker.getLatLng();
+              center = { lat: ll.lat, lon: ll.lng };
+            } else if (drone && drone.latitude && drone.longitude) {
+              center = { lat: drone.latitude, lon: drone.longitude };
+            }
+            if (!center) {
+              window.alert("Drone has no valid position for patrol");
+              return;
+            }
+
+            const radiusStr = window.prompt("Patrol radius in meters:", "80");
+            if (!radiusStr) return;
+            const durationStr = window.prompt("Patrol duration (seconds):", "300");
+            if (!durationStr) return;
+            const speedStr = window.prompt("Drone speed (m/s):", "10");
+            if (!speedStr) return;
+            const edgeStr = window.prompt("Edge threshold (meters):", "300");
+            if (!edgeStr) return;
+
+            const radius = Number(radiusStr);
+            const duration = Number(durationStr);
+            const speed = Number(speedStr);
+            const edgeThreshold = Number(edgeStr);
+
+            // Prefer to compute a road-following patrol using the loaded road graph
+            let res: any = null;
+            let routeSource = "waypoints";
+            try {
+              if (graph && graph.nodes && graph.adj && graph.nodes.size > 0) {
+                // Build a local subgraph limited to a bbox around the center to keep Dijkstra fast
+                const latDegPerMeter = 1 / 111111;
+                const lonDegPerMeter = 1 / (111111 * Math.cos((center.lat * Math.PI) / 180 || 1));
+                const bboxMultiplier = 1.5;
+                const latDelta = (radius * bboxMultiplier) * latDegPerMeter;
+                const lonDelta = (radius * bboxMultiplier) * lonDegPerMeter;
+                const minLat = center.lat - latDelta;
+                const maxLat = center.lat + latDelta;
+                const minLon = center.lon - lonDelta;
+                const maxLon = center.lon + lonDelta;
+
+                const filteredNodes = new Map<string, { lat: number; lon: number; inCoverage: boolean }>();
+                for (const [k, v] of graph.nodes.entries()) {
+                  if (v.lat >= minLat && v.lat <= maxLat && v.lon >= minLon && v.lon <= maxLon) {
+                    filteredNodes.set(k, { lat: v.lat, lon: v.lon, inCoverage: v.inCoverage });
+                  }
+                }
+
+                // If too few nodes, fall back to waypoint planner
+                if (filteredNodes.size >= 3) {
+                  // Build filtered adjacency only for nodes present
+                  const filteredAdj = new Map<string, Array<{ to: string; weight: number }>>();
+                  for (const [k, neighbors] of graph.adj.entries()) {
+                    if (!filteredNodes.has(k)) continue;
+                    const arr: Array<{ to: string; weight: number }> = [];
+                    for (const nb of neighbors) {
+                      if (filteredNodes.has(nb.to)) arr.push({ to: nb.to, weight: nb.weight });
+                    }
+                    filteredAdj.set(k, arr);
+                  }
+
+                  // Generate anchors around circle
+                  const anchorsN = 6;
+                  const anchors: Array<{ lat: number; lon: number }> = [];
+                  for (let i = 0; i < anchorsN; i++) {
+                    const ang = (360 / anchorsN) * i;
+                    const R = 6371000;
+                    const angRad = (ang * Math.PI) / 180;
+                    const dByR = radius / R;
+                    const lat1 = (center.lat * Math.PI) / 180;
+                    const lon1 = (center.lon * Math.PI) / 180;
+                    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(dByR) + Math.cos(lat1) * Math.sin(dByR) * Math.cos(angRad));
+                    const lon2 = lon1 + Math.atan2(Math.sin(angRad) * Math.sin(dByR) * Math.cos(lat1), Math.cos(dByR) - Math.sin(lat1) * Math.sin(lat2));
+                    anchors.push({ lat: (lat2 * 180) / Math.PI, lon: (lon2 * 180) / Math.PI });
+                  }
+
+                  // Snap anchors to nearest nodes in filteredNodes using distance threshold
+                  const snappedNodes: Array<string | null> = [];
+                  const snapThreshold = edgeThreshold * 1.2;
+                  for (const a of anchors) {
+                    let bestKey: string | null = null;
+                    let bestD = Infinity;
+                    for (const [k, n] of filteredNodes.entries()) {
+                      const d = haversineMeters(a.lat, a.lon, n.lat, n.lon);
+                      if (d < bestD) {
+                        bestD = d;
+                        bestKey = k;
+                      }
+                    }
+                    if (bestD <= snapThreshold) snappedNodes.push(bestKey); else snappedNodes.push(null);
+                  }
+
+                  const validAnchors = snappedNodes.filter((x) => x !== null) as string[];
+                  if (validAnchors.length >= 3) {
+                    // Use Dijkstra (findPathBidirectionalDijkstra) on filteredNodes/filteredAdj for each segment
+                    const routeCoords: Array<{ lat: number; lon: number }> = [];
+                    let failed = false;
+                    for (let i = 0; i < validAnchors.length; i++) {
+                      const aKey = validAnchors[i];
+                      const bKey = validAnchors[(i + 1) % validAnchors.length];
+                      const aNode = filteredNodes.get(aKey)!;
+                      const bNode = filteredNodes.get(bKey)!;
+                      const segment = findPathBidirectionalDijkstra(aNode.lat, aNode.lon, bNode.lat, bNode.lon, filteredNodes, filteredAdj);
+                      if (!segment || segment.length === 0) { failed = true; break; }
+                      // Append segment avoiding duplicate junctions
+                      if (routeCoords.length === 0) {
+                        routeCoords.push(...segment.map((p: any) => ({ lat: p.lat, lon: p.lon })));
+                      } else {
+                        const first = segment[0];
+                        const last = routeCoords[routeCoords.length - 1];
+                        if (Math.abs(first.lat - last.lat) < 1e-9 && Math.abs(first.lon - last.lon) < 1e-9) {
+                          routeCoords.push(...segment.slice(1).map((p: any) => ({ lat: p.lat, lon: p.lon })));
+                        } else {
+                          routeCoords.push(...segment.map((p: any) => ({ lat: p.lat, lon: p.lon })));
+                        }
+                      }
+                    }
+                    if (!failed && routeCoords.length >= 3) {
+                      // success
+                      let loopDistance = 0;
+                      for (let i = 0; i < routeCoords.length; i++) {
+                        const a = routeCoords[i];
+                        const b = routeCoords[(i + 1) % routeCoords.length];
+                        loopDistance += haversineMeters(a.lat, a.lon, b.lat, b.lon);
+                      }
+                      const loopDuration = loopDistance / Math.max(0.1, speed);
+                      res = { ok: true, route: routeCoords, loopDistance, loopDuration, diagnostics: { source: "graph", nodesConsidered: filteredNodes.size, anchorsSnapped: validAnchors.length } };
+                      routeSource = "graph";
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              console.debug("graph-based patrol planning failed", e);
+            }
+
+            // If graph planner didn't produce a route, fall back to waypoint-based client planner
+            if (!res) {
+              res = await computePatrolRouteClient(center, radius, { anchors: 6, edgeThresholdMeters: edgeThreshold, maxNodes: 500, droneSpeed: speed, waypoints, aerialFallback: true });
+              routeSource = res.ok ? (res.diagnostics && res.diagnostics.nodes ? "waypoints" : "aerial") : "error";
+            }
+
+            if (!res.ok) {
+              window.alert(`Patrol planning failed: ${res.error || 'unknown'}`);
+              return;
+            }
+
+            // show a brief preview
+            try {
+              const map = mapRef.current;
+              if (map && L && Array.isArray(res.route)) {
+                const coords = (res.route as any[]).map((p) => (L as any).latLng(p.lat, p.lon));
+                const poly = (L as any).polyline(coords, { color: '#3b82f6', weight: 3, opacity: 0.8 }).addTo(map);
+                setTimeout(() => { try { map.removeLayer(poly); } catch {} }, 3000);
+              }
+            } catch (e) {
+              console.debug('patrol preview failed', e);
+            }
+
+            // run patrol loops until duration or cancelled via patrolActiveRef
+            patrolActiveRef.current.set(droneId, true);
+            try {
+              const endAt = Date.now() + Math.max(0, duration) * 1000;
+              while (Date.now() < endAt) {
+                if (!marker) break;
+                // stop if external cancellation requested
+                if (!patrolActiveRef.current.get(droneId)) break;
+                const routeCoords = res.route as any[];
+                const pathWaypoints = routeCoords.map((p: any, i: number) => ({ id: i, name: `patrol-${i}`, latitude: p.lat, longitude: p.lon }));
+                const lastWp = pathWaypoints[pathWaypoints.length - 1];
+                try {
+                  await animateDroneMovement(
+                    L,
+                    droneId,
+                    drone,
+                    marker,
+                    pathWaypoints,
+                    lastWp,
+                    { lat: marker.getLatLng().lat, lng: marker.getLatLng().lng },
+                    droneAnimationStateRef,
+                    setAlert,
+                  );
+                } catch (e) {
+                  console.error('patrol animation error', e);
+                  break;
+                }
+              }
+            } finally {
+              try { patrolActiveRef.current.delete(droneId); } catch {}
+            }
           } catch (err) {
             console.error("openPatrolForDrone failed", err);
+            try { window.alert(`Patrol failed: ${String(err)}`); } catch {}
           }
         };
 
@@ -767,6 +963,11 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
       const droneMarker = deployedDronesRef.current.get(droneId)?.marker;
       if (!droneMarker) return;
 
+      // If a patrol is running for this drone, cancel it so the fly command can take over
+      try {
+        patrolActiveRef.current.set(droneId, false);
+      } catch {}
+
       if (
         !isWithinTowerCoverage(
           targetWaypoint.latitude,
@@ -902,6 +1103,8 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
       // to surface a single consolidated message to the user.
       if (isAnimating) {
         try {
+          // signal patrol loop (if any) to stop starting new iterations
+          try { patrolActiveRef.current.set(droneId, false); } catch {}
           if (animCtrl && typeof animCtrl === "object") {
             try {
               // mark the registered controller to suppress its internal cancel alert
@@ -959,6 +1162,8 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
 
       try {
         // If an animation is running, cancel it and persist last marker pos before moving to inventory
+        // signal patrol loop (if any) to stop
+        try { patrolActiveRef.current.set(droneId, false); } catch {}
         const ctrl = droneAnimationStateRef.current.get(droneId);
         if (ctrl && ctrl.animating) {
           try {
@@ -1110,22 +1315,7 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
           }}
         />
       )}
-      {showPatrolModal && patrolDroneId !== undefined && (
-        // Lazy-load PatrolModal to avoid SSR issues
-        <React.Suspense>
-          <PatrolModal
-            droneId={patrolDroneId}
-            drone={drones.find((d)=>d.id===patrolDroneId)}
-            waypoints={waypoints}
-            mapRef={mapRef}
-            L={L}
-            deployedDronesRef={deployedDronesRef}
-            droneAnimationStateRef={droneAnimationStateRef}
-            onClose={() => { setShowPatrolModal(false); setPatrolDroneId(undefined); }}
-            setAlert={setAlert}
-          />
-        </React.Suspense>
-      )}
+      {/* Patrol modal removed; prompt-based patrol flow is used via popup button */}
     </div>
   );
 }

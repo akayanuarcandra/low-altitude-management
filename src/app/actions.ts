@@ -307,41 +307,7 @@ export async function createTaskWithItemsFromJSON(body: any) {
       const center = { lat: Number(startLat), lon: Number(startLon) };
       // Force aerial-only computation for simple patrol (no OSRM/precomputed routes)
       // Use Dijkstra-based precomputer to build a road-following loop
-      const { default: computePatrolRouteDijkstra } = await import("@/lib/patrol-dijkstra");
-      const pre = await computePatrolRouteDijkstra(center, radius, duration, { anchors: 6, edgeThresholdMeters: 300, droneSpeed: 10 });
-      if (!pre.ok) {
-        return { ok: false, error: pre.error, diagnostics: pre.diagnostics };
-      }
-
-      // Precompute succeeded; insert the Task, then persist the Patrol row.
-      console.log("createTaskWithItemsFromJSON: inserting task (patrol)", { body, insertData });
-      const [res] = await db.insert(tasks).values(insertData).returning();
-      const taskId = (res as any).id;
-
-      try {
-        const [patIns] = await db.insert(patrols).values({
-          droneId: body?.droneId ?? null,
-          radiusMeters: Number(radius),
-          durationSeconds: Number(duration),
-          status: 'precomputed',
-          startLat: String(center.lat),
-          startLon: String(center.lon),
-          routeJson: JSON.stringify(pre.route),
-          routeDistanceM: Math.round(pre.loopDistance ?? 0),
-          routeDurationS: Math.round(pre.loopDuration ?? 0),
-        } as any).returning();
-        const patrolId = (patIns as any)?.id ?? null;
-
-        // Patrol route persisted in patrols.routeJson. We intentionally do not
-        // create TaskItems for patrol tasks — the runner will execute patrols
-        // by following the stored routeJson directly.
-      } catch (e) {
-        console.error('failed to persist patrol', e);
-      }
-
-      revalidatePath('/dashboard/map');
-      revalidatePath('/dashboard/tasks');
-      return { ok: true, taskId, patrolPrecomputed: true };
+      // Patrol task creation disabled: ignore body.category === 'patrol' paths
     }
 
     console.log("createTaskWithItemsFromJSON: inserting task", {

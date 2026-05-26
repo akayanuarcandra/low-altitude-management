@@ -104,26 +104,7 @@ export async function POST(req: Request) {
 
       for (const [dId, tasksForDrone] of byDrone.entries()) {
         try {
-          // Check for any precomputed patrol for this drone and attach to the
-          // first started task that has no TaskItems. Patrols are persisted
-          // separately in the patrols table and do not create TaskItems.
-          let patrolForDrone: any = null;
-          try {
-            const patRows = await db.select().from(patrols).where(eq(patrols.droneId, dId));
-            if (Array.isArray(patRows) && patRows.length > 0) {
-              // pick the most recent precomputed patrol first
-              patRows.sort((a: any, b: any) => {
-                const ta = new Date(a.createdAt).getTime();
-                const tb = new Date(b.createdAt).getTime();
-                return tb - ta;
-              });
-              patrolForDrone = patRows.find((p: any) => String(p.status) === 'precomputed') || patRows[0];
-            }
-          } catch (e) {
-            // ignore DB errors and continue without patrol
-            console.debug('run-for-drone: failed to fetch patrols', e);
-            patrolForDrone = null;
-          }
+          // Patrol support removed from task runner for now
           // build stops: preserve first-seen order and dedupe by lat/lon
           const stopsMap = new Map<string, { lat: number; lon: number; origKeys: string[]; }>();
           const itemsList: Array<{ parentTask: any; item: any }> = [];
