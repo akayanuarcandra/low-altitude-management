@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateDrone, createWaypoint, createStation } from "@/app/actions";
 import { Card, CardContent } from "@/components/ui/card";
