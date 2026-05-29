@@ -110,7 +110,7 @@ export function setupMapLayers(
                     `
                         : ""
                     }
-                        <div style="margin-top:8px;">
+                        <div>
                             <button onclick="window.openPatrolForDrone && window.openPatrolForDrone(${drone.id})" style="margin-top:4px;padding:4px 12px;background:#10b981;color:white;border:none;border-radius:4px;cursor:pointer;width:100%;font-weight:500;">Patrol</button>
                         </div>
                 </div>

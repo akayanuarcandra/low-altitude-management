@@ -132,7 +132,6 @@ export default function TaskActionArea({
             <div className="space-y-4">
               <div className="flex flex-col gap-3">
                 <Button className="flex-1" onClick={handleDelivery}>Delivery</Button>
-                <Button className="flex-1" onClick={handlePatrol}>Patrol</Button>
                 <Button className="flex-1" onClick={handleReturn} disabled={loadingReturn}>{loadingReturn ? 'Sending...' : 'Return to Station'}</Button>
               </div>
               <div className="text-sm text-gray-600">Choose an action to perform for this drone.</div>

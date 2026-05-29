@@ -61,22 +61,12 @@ export default function PatrolModal({
       setAlert?.({ type: "error", message: `Patrol planning failed: ${res.error || 'unknown'}` });
       return null;
     }
-    setPreviewRoute(res.route as any[]);
+      setPreviewRoute((res.route ?? []) as any[]);
 
     // render on map
     try {
-      const map = mapRef.current;
-      if (!map || !L) return null;
-      if (previewLayerRef.current) { map.removeLayer(previewLayerRef.current); previewLayerRef.current = null; }
-      if (anchorsLayerRef.current) { map.removeLayer(anchorsLayerRef.current); anchorsLayerRef.current = null; }
-      const coords = (res.route as any[]).map((p) => (L as any).latLng(p.lat, p.lon));
-      previewLayerRef.current = (L as any).polyline(coords, { color: '#3b82f6', weight: 3, opacity: 0.8 }).addTo(map);
-      // anchor markers
-      anchorsLayerRef.current = (L as any).layerGroup();
-      (res.route as any[]).slice(0, Math.min(6, res.route.length)).forEach((p:any) => {
-        const m = (L as any).circleMarker([p.lat, p.lon], { radius:4, color:'#ef4444' }).addTo(anchorsLayerRef.current);
-      });
-      anchorsLayerRef.current.addTo(map);
+      // preview drawing removed: do not render route polyline or anchor markers in the modal
+      // keep previewRoute state so animation can still use the computed coords
     } catch (e) { console.debug('patrol preview render failed', e); }
     return res;
   };

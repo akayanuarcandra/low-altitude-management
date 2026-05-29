@@ -8,7 +8,6 @@ import {
   waypoints,
   stations,
   taskItems,
-  patrols,
 } from "@/lib/schema";
 import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";

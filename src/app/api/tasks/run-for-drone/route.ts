@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tasks, taskItems, towers, drones, precomputedRoutes, waypoints, patrols } from "@/lib/schema";
+import { tasks, taskItems, towers, drones, precomputedRoutes, waypoints } from "@/lib/schema";
 import { eq, and, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import OsrmRoutingEngine from "@/lib/osrm-engine";
@@ -140,38 +140,8 @@ export async function POST(req: Request) {
             // this drone, attach the patrol route to started tasks that have no
             // TaskItems. Persist patrol status as started so the runner can pick
             // it up.
-            if (patrolForDrone) {
-              let routeCoords: Array<{lat:number,lon:number}> = [];
-              try {
-                routeCoords = JSON.parse(String(patrolForDrone.routeJson));
-              } catch (e) {
-                routeCoords = [];
-              }
-              if (routeCoords && routeCoords.length > 0) {
-                for (const s of tasksForDrone) {
-                  const items = s.items || [];
-                  if (!items || items.length === 0) {
-                    s.route = routeCoords;
-                    s.patrol = {
-                      id: patrolForDrone.id,
-                      radiusMeters: Number(patrolForDrone.radiusMeters),
-                      durationSeconds: Number(patrolForDrone.durationSeconds),
-                      routeDistanceM: patrolForDrone.routeDistanceM,
-                      routeDurationS: patrolForDrone.routeDurationS,
-                      status: patrolForDrone.status,
-                    };
-                    s.itemsRouteIndices = [];
-                  }
-                }
-                try {
-                  await db.update(patrols).set({ status: 'started', startedAt: new Date() }).where(eq(patrols.id, patrolForDrone.id));
-                } catch (e) {
-                  console.debug('run-for-drone: failed to mark patrol started', e);
-                }
-                // we've attached a patrol route for this drone; skip regular routing
-                continue;
-              }
-            }
+            // Patrol persistence removed; server no longer attaches persisted
+            // patrol routes to tasks. Client-side patrols run locally.
             // nothing to route for this drone
             continue;
           }

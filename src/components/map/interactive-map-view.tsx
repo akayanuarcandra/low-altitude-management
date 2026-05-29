@@ -653,17 +653,7 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
               return;
             }
 
-            // show a brief preview
-            try {
-              const map = mapRef.current;
-              if (map && L && Array.isArray(res.route)) {
-                const coords = (res.route as any[]).map((p) => (L as any).latLng(p.lat, p.lon));
-                const poly = (L as any).polyline(coords, { color: '#3b82f6', weight: 3, opacity: 0.8 }).addTo(map);
-                setTimeout(() => { try { map.removeLayer(poly); } catch {} }, 3000);
-              }
-            } catch (e) {
-              console.debug('patrol preview failed', e);
-            }
+            // preview drawing removed: we no longer render the patrol path on the map here
 
             // run patrol loops until duration or cancelled via patrolActiveRef
             patrolActiveRef.current.set(droneId, true);
@@ -677,6 +667,10 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
                 const pathWaypoints = routeCoords.map((p: any, i: number) => ({ id: i, name: `patrol-${i}`, latitude: p.lat, longitude: p.lon }));
                 const lastWp = pathWaypoints[pathWaypoints.length - 1];
                 try {
+                  if (!drone) {
+                    console.debug("openPatrolForDrone: drone metadata not found", droneId);
+                    break;
+                  }
                   await animateDroneMovement(
                     L,
                     droneId,
@@ -1269,7 +1263,7 @@ const TASK_STOP_PAUSE_MS = Number(process.env.NEXT_PUBLIC_TASK_STOP_PAUSE_MS ?? 
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-4">
+      <div className="flex gap-4 items-start">
         <Card className="flex-1">
           <CardContent>
             <div
