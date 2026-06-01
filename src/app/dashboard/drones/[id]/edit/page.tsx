@@ -44,17 +44,10 @@ export default async function EditDronePage({
             action={async (formData) => {
               "use server";
               const name = String(formData.get("name"));
-              const latitude = parseFloat(String(formData.get("latitude")));
-              const longitude = parseFloat(String(formData.get("longitude")));
-              const towerId = parseInt(String(formData.get("towerId")), 10);
-              const status = String(formData.get("status"));
 
+              // Only update the drone name; other fields are intentionally omitted
               await updateDrone(droneId, {
                 name,
-                latitude,
-                longitude,
-                towerId,
-                status,
               });
               redirect("/dashboard/drones");
             }}
@@ -65,58 +58,8 @@ export default async function EditDronePage({
               <Input id="name" name="name" defaultValue={drone.name} required />
             </div>
 
-            <div>
-              <Label htmlFor="latitude">Latitude</Label>
-              <Input
-                id="latitude"
-                name="latitude"
-                type="number"
-                step="0.00000001"
-                defaultValue={drone.latitude ?? undefined}
-                required
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="longitude">Longitude</Label>
-              <Input
-                id="longitude"
-                name="longitude"
-                type="number"
-                step="0.00000001"
-                defaultValue={drone.longitude ?? undefined}
-                required
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="towerId">Tower</Label>
-              <NativeSelect
-                id="towerId"
-                name="towerId"
-                defaultValue={drone.towerId ?? undefined}
-                required
-              >
-                {towersList.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.rangeMeters}m range)
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-
-            <div>
-              <Label htmlFor="status">Status</Label>
-              <Input
-                id="status"
-                name="status"
-                defaultValue={drone.status}
-                required
-              />
-            </div>
-
             <div className="flex gap-2 pt-4">
-              <Button type="submit">Save Changes</Button>
+              <Button type="submit">Save</Button>
               <Link href="/dashboard/drones">
                 <Button type="button" variant="secondary">
                   Cancel

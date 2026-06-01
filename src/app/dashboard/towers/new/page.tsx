@@ -10,6 +10,7 @@ import TowerLocationPicker from "@/components/map/tower-location-picker";
 import { ActiveDropdown } from "@/components/ui/active-dropdown";
 import { db } from "@/lib/db";
 import { towers } from "@/lib/schema";
+import { MapView } from "@/components/map/map-view";
 import { desc } from "drizzle-orm";
 
 export default async function NewTowerPage() {
@@ -19,45 +20,89 @@ export default async function NewTowerPage() {
 
   const existing = await db.select().from(towers).orderBy(desc(towers.createdAt));
   const towersDTO = existing.map((t) => ({
+    id: t.id,
     name: t.name,
-    latitude: Number(t.latitude),
-    longitude: Number(t.longitude),
+    latitude: t.latitude === null ? null : Number(t.latitude),
+    longitude: t.longitude === null ? null : Number(t.longitude),
     rangeMeters: Number(t.rangeMeters),
     active: (t as any).active ?? true,
   }));
 
+  // TowerLocationPicker expects towers with numeric latitude/longitude
+  const towersForPicker = towersDTO
+    .filter((t) => t.latitude !== null && t.longitude !== null)
+    .map((t) => ({
+      name: t.name,
+      latitude: t.latitude as number,
+      longitude: t.longitude as number,
+      rangeMeters: t.rangeMeters,
+      active: t.active,
+    }));
+
   return (
-    <div className="min-h-screen bg-gray-100 p-8 flex justify-center">
-      <Card className="w-full max-w-7xl h-fit">
-        <CardHeader>
-          <CardTitle>Create Tower</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <form action={createTower} className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-gray-700">Name</label>
-                <Input name="name" placeholder="e.g., Tower 1" required />
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-gray-700">Range (meters)</label>
-                <Input name="rangeMeters" type="number" placeholder="e.g., 5000" required />
-              </div>
-              <div>
-                <ActiveDropdown />
-              </div>
-            </div>
-            <label className="text-sm font-medium text-gray-700">Location</label>
-            <div className="grid grid-cols-2 mt-2 gap-2">
-              <TowerLocationPicker towers={towersDTO} />
-            </div>
-            <div className="col-span-5 flex items-center gap-2">
-              <Button type="submit">Create</Button>
-              <Link href="/dashboard/towers"><Button type="button" variant="outline">Cancel</Button></Link>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+    <div className="min-h-screen bg-gray-100 p-8">
+      <div className="max-w-9xl mx-auto">
+        <div className="mb-4">
+          <h1 className="text-3xl font-bold mb-2">Create Tower</h1>
+          <p className="text-gray-600">Create a new tower and view existing towers</p>
+        </div>
+
+        <div className="flex gap-4">
+          {/* Left: Form + Map */}
+          <div className="flex-1">
+            <Card className="mb-4">
+              <CardHeader>
+                <CardTitle>New Tower</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form action={createTower} className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-sm font-medium text-gray-700">Name</label>
+                      <Input name="name" placeholder="e.g., Tower 1" required />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-sm font-medium text-gray-700">Range (meters)</label>
+                      <Input name="rangeMeters" type="number" placeholder="e.g., 5000" required />
+                    </div>
+                    <div>
+                      <ActiveDropdown />
+                    </div>
+                  </div>
+                  <label className="text-sm font-medium text-gray-700">Location</label>
+                  <div className="grid grid-cols-2 mt-2 gap-2">
+                    <TowerLocationPicker towers={towersForPicker} />
+                  </div>
+                  <div className="col-span-5 flex items-center gap-2">
+                    <Button type="submit">Create</Button>
+                    <Link href="/dashboard/towers"><Button type="button" variant="outline">Cancel</Button></Link>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+
+            {towersDTO.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Map View</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-170 rounded-md overflow-hidden border">
+                    <MapView
+                      towers={towersDTO}
+                      drones={[]}
+                      waypoints={[]}
+                      showWaypointToggle={false}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Right column removed - tower list intentionally hidden on create page */}
+        </div>
+      </div>
     </div>
   );
 }

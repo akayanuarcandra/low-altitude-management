@@ -19,6 +19,10 @@ type Props = {
   defaultLat?: number;
   defaultLon?: number;
   towers?: TowerOverlay[];
+  compact?: boolean;
+  split?: boolean;
+  stations?: { id: number; name: string; latitude: number; longitude: number }[];
+  newIconUrl?: string;
 };
 
 export default function TowerLocationPicker({
@@ -27,6 +31,10 @@ export default function TowerLocationPicker({
   defaultLat,
   defaultLon,
   towers = [],
+  compact = false,
+  split = false,
+  stations = [],
+  newIconUrl = "/icons/tower-new.svg",
 }: Props) {
   const [lat, setLat] = useState<number | "">(defaultLat ?? "");
   const [lon, setLon] = useState<number | "">(defaultLon ?? "");
@@ -56,9 +64,9 @@ export default function TowerLocationPicker({
         attribution: '&copy; OpenStreetMap contributors',
       }).addTo(mapRef.current);
 
-      // Create custom icon for new tower placement
+      // Create custom icon for new placement (tower or station)
       const newTowerIcon = L.icon({
-        iconUrl: "/icons/tower-new.svg",
+        iconUrl: newIconUrl,
         iconSize: [64, 64],
         iconAnchor: [32, 64],
         popupAnchor: [0, -32],
@@ -73,13 +81,15 @@ export default function TowerLocationPicker({
         });
       }
 
-      // Add overlay group for existing towers
+      // Add overlay group for existing towers and stations
       overlayGroupRef.current = L.layerGroup().addTo(mapRef.current);
 
-      // If no initial point, try to fit to existing towers
-      if (!(typeof lat === "number" && typeof lon === "number") && towers.length > 0) {
+      // If no initial point, try to fit to existing towers/stations
+      const hasPoints = towers.length > 0 || stations.length > 0;
+      if (!(typeof lat === "number" && typeof lon === "number") && hasPoints) {
         const b = L.latLngBounds([]);
         towers.forEach((t) => b.extend([t.latitude, t.longitude] as [number, number]));
+        stations.forEach((s) => b.extend([s.latitude, s.longitude] as [number, number]));
         if (b.isValid()) mapRef.current.fitBounds(b.pad(0.2));
       }
 
@@ -130,6 +140,22 @@ export default function TowerLocationPicker({
         .bindPopup(`<b>${t.name}</b><br/>Range: ${t.rangeMeters} m`)
         .addTo(group);
     });
+
+    // Render existing stations as markers
+    if (stations && stations.length > 0) {
+      const stationIcon = L.icon({
+        iconUrl: "/icons/station.svg",
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -12],
+      });
+      stations.forEach((s) => {
+        const pos = L.latLng(s.latitude, s.longitude);
+        L.marker(pos, { icon: stationIcon })
+          .bindPopup(`<b>${s.name}</b><br/>Lat: ${s.latitude.toFixed(6)}<br/>Lon: ${s.longitude.toFixed(6)}`)
+          .addTo(group);
+      });
+    }
   }, [towers]);
 
   // If user types manually, update marker and map
@@ -158,30 +184,93 @@ export default function TowerLocationPicker({
     }
   }, [lat, lon]);
 
+  // If caller requests split mode and compact, render the two inputs as separate siblings
+  if (compact && split) {
+    return (
+      <>
+        <Input
+          name={nameLat}
+          placeholder="Latitude"
+          type="number"
+          step="0.00000001"
+          value={lat}
+          className="w-full"
+          onChange={(e) => {
+            const v = e.target.value;
+            setLat(v === "" ? "" : Number(v));
+          }}
+        />
+        <Input
+          name={nameLon}
+          placeholder="Longitude"
+          type="number"
+          step="0.00000001"
+          value={lon}
+          className="w-full"
+          onChange={(e) => {
+            const v = e.target.value;
+            setLon(v === "" ? "" : Number(v));
+          }}
+        />
+      </>
+    );
+  }
+
   return (
     <>
-      <Input
-        name={nameLat}
-        placeholder="Latitude"
-        type="number"
-        step="0.00000001"
-        value={lat}
-        onChange={(e) => {
-          const v = e.target.value;
-          setLat(v === "" ? "" : Number(v));
-        }}
-      />
-      <Input
-        name={nameLon}
-        placeholder="Longitude"
-        type="number"
-        step="0.00000001"
-        value={lon}
-        onChange={(e) => {
-          const v = e.target.value;
-          setLon(v === "" ? "" : Number(v));
-        }}
-      />
+      {compact ? (
+        <div className="flex gap-2 items-center">
+          <Input
+            name={nameLat}
+            placeholder="Latitude"
+            type="number"
+            step="0.00000001"
+            value={lat}
+            className="flex-1"
+            onChange={(e) => {
+              const v = e.target.value;
+              setLat(v === "" ? "" : Number(v));
+            }}
+          />
+          <Input
+            name={nameLon}
+            placeholder="Longitude"
+            type="number"
+            step="0.00000001"
+            value={lon}
+            className="flex-1"
+            onChange={(e) => {
+              const v = e.target.value;
+              setLon(v === "" ? "" : Number(v));
+            }}
+          />
+        </div>
+      ) : (
+        <>
+          <Input
+            name={nameLat}
+            placeholder="Latitude"
+            type="number"
+            step="0.00000001"
+            value={lat}
+            onChange={(e) => {
+              const v = e.target.value;
+              setLat(v === "" ? "" : Number(v));
+            }}
+          />
+          <Input
+            name={nameLon}
+            placeholder="Longitude"
+            type="number"
+            step="0.00000001"
+            value={lon}
+            onChange={(e) => {
+              const v = e.target.value;
+              setLon(v === "" ? "" : Number(v));
+            }}
+          />
+        </>
+      )}
       <div ref={containerRef} className="col-span-2 w-full h-140 rounded-md overflow-hidden border" />
     </>
   );

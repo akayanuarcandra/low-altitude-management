@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   updateDrone,
   createWaypoint,
+  createStation,
   deleteWaypoint,
   deleteTower,
   deleteStation,
@@ -64,6 +65,7 @@ export function MapView({
   waypoints,
   stations = [],
   showWaypointToggle = true,
+  showStationToggle = false,
 }: {
   towers: TowerDTO[];
   drones: DroneDTO[];
@@ -75,6 +77,7 @@ export function MapView({
     longitude: number;
   }[];
   showWaypointToggle?: boolean;
+  showStationToggle?: boolean;
 }) {
   const mapRef = useRef<any>(null);
   const layerGroupRef = useRef<any>(null);
@@ -85,6 +88,7 @@ export function MapView({
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingWaypoint, setIsCreatingWaypoint] = useState(false);
+  const [isCreatingStation, setIsCreatingStation] = useState(false);
 
   useEffect(() => {
     const loadLeaflet = async () => {
@@ -186,10 +190,10 @@ export function MapView({
         t.id +
         ')" style="margin-top:4px;padding:2px 8px;background:#ef4444;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button>' +
         "</div>";
-      // Render a non-interactive tower marker (no popups/clicks)
-      L.marker(center, { icon: towerIcon, interactive: false }).addTo(
-        layerGroup,
-      );
+      // Render an interactive tower marker with a popup showing details and actions
+      L.marker(center, { icon: towerIcon })
+        .bindPopup(towerPopupHtml)
+        .addTo(layerGroup);
       bounds.extend(center);
     });
 
@@ -295,23 +299,34 @@ export function MapView({
     });
 
     const handleMapClick = async (e: any) => {
-      if (!isCreatingWaypoint) return;
+      if (isCreatingWaypoint) {
+        const { lat, lng } = e.latlng;
+        const name = prompt(
+          "Create waypoint at (" +
+            lat.toFixed(6) +
+            ", " +
+            lng.toFixed(6) +
+            ")?\nEnter waypoint name:",
+        );
+        if (name && name.trim()) {
+          const formData = new FormData();
+          formData.append("name", name.trim());
+          formData.append("latitude", String(lat));
+          formData.append("longitude", String(lng));
+          await createWaypoint(formData);
+          setIsCreatingWaypoint(false);
+        }
+        return;
+      }
 
-      const { lat, lng } = e.latlng;
-      const name = prompt(
-        "Create waypoint at (" +
-          lat.toFixed(6) +
-          ", " +
-          lng.toFixed(6) +
-          ")?\nEnter waypoint name:",
-      );
-      if (name && name.trim()) {
-        const formData = new FormData();
-        formData.append("name", name.trim());
-        formData.append("latitude", String(lat));
-        formData.append("longitude", String(lng));
-        await createWaypoint(formData);
-        setIsCreatingWaypoint(false);
+      if (isCreatingStation) {
+        const { lat, lng } = e.latlng;
+        // If the page has a handler to receive station coords (e.g., the create station form), call it.
+        if (typeof (window as any).setStationCoordinates === "function") {
+          (window as any).setStationCoordinates(lat, lng);
+        }
+        setIsCreatingStation(false);
+        return;
       }
     };
     map.off("click");
@@ -379,7 +394,7 @@ export function MapView({
     } else {
       map.fitBounds(bounds.pad(0.2));
     }
-  }, [towers, drones, waypoints, stations, isLoading, isCreatingWaypoint]);
+  }, [towers, drones, waypoints, stations, isLoading, isCreatingWaypoint, isCreatingStation]);
 
   if (isLoading) {
     return (
@@ -391,20 +406,33 @@ export function MapView({
 
   return (
     <div className="flex flex-col h-full gap-2">
-      {showWaypointToggle && (
-        <button
-          onClick={() => setIsCreatingWaypoint(!isCreatingWaypoint)}
-          className={
-            isCreatingWaypoint
-              ? "px-4 py-2 rounded-md font-medium transition-colors bg-green-600 text-white hover:bg-green-700"
-              : "px-4 py-2 rounded-md font-medium transition-colors bg-gray-200 text-gray-700 hover:bg-gray-300"
-          }
-        >
-          {isCreatingWaypoint
-            ? "✓ Click map to place waypoint"
-            : "+ Create Waypoint"}
-        </button>
-      )}
+      <div className="flex gap-2">
+        {showWaypointToggle && (
+          <button
+            onClick={() => setIsCreatingWaypoint(!isCreatingWaypoint)}
+            className={
+              isCreatingWaypoint
+                ? "px-4 py-2 rounded-md font-medium transition-colors bg-green-600 text-white hover:bg-green-700"
+                : "px-4 py-2 rounded-md font-medium transition-colors bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }
+          >
+            {isCreatingWaypoint ? "✓ Click map to place waypoint" : "+ Create Waypoint"}
+          </button>
+        )}
+
+        {showStationToggle && (
+          <button
+            onClick={() => setIsCreatingStation(!isCreatingStation)}
+            className={
+              isCreatingStation
+                ? "px-4 py-2 rounded-md font-medium transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                : "px-4 py-2 rounded-md font-medium transition-colors bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }
+          >
+            {isCreatingStation ? "✓ Click map to place station" : "+ Create Station"}
+          </button>
+        )}
+      </div>
       <div
         className="w-full flex-1 rounded-md overflow-hidden border"
         ref={containerRef}

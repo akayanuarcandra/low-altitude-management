@@ -7,10 +7,10 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 
 // Reusable app header with logo and primary nav links
+// Simplified: only Home and Dashboard as requested
 const navLinks = [
   { href: "/", label: "Home" },
-  { href: "/uav", label: "UAV" },
-  { href: "/about", label: "About" },
+  { href: "/dashboard", label: "Dashboard" },
 ];
 
 /**

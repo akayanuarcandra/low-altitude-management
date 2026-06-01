@@ -46,17 +46,13 @@ export default async function FlightsPage() {
               <div className="overflow-x-auto">
                 <table className="min-w-full table-auto border-collapse">
                   <thead>
-                    <tr className="text-left text-sm text-gray-600 border-b">
-                      <th className="py-2 px-3">ID</th>
-                      <th className="py-2 px-3">Drone</th>
-                      <th className="py-2 px-3">Title</th>
-                      <th className="py-2 px-3">Status</th>
-                      <th className="py-2 px-3">Started At</th>
-                      <th className="py-2 px-3">Completed At</th>
-                      <th className="py-2 px-3">Duration</th>
-                      <th className="py-2 px-3">Qty</th>
-                      <th className="py-2 px-3">Actions</th>
-                    </tr>
+                      <tr className="text-left text-sm text-gray-600 border-b">
+                        <th className="py-2 px-3">ID</th>
+                        <th className="py-2 px-3">Drone</th>
+                        <th className="py-2 px-3">Title</th>
+                        <th className="py-2 px-3">Status</th>
+                        <th className="py-2 px-3">Started At</th>
+                      </tr>
                   </thead>
                   <tbody>
                     {rows.map((r: any) => (
@@ -68,14 +64,7 @@ export default async function FlightsPage() {
                         <td className="py-2 px-3 align-top text-sm text-gray-700">{r.title}</td>
                         <td className="py-2 px-3 align-top text-sm text-gray-700">{r.status}</td>
                         <td className="py-2 px-3 align-top text-sm text-gray-700">{formatDate(r.startedAt)}</td>
-                        <td className="py-2 px-3 align-top text-sm text-gray-700">{formatDate(r.completedAt)}</td>
-                        <td className="py-2 px-3 align-top text-sm text-gray-700">{formatDuration(r.startedAt, r.completedAt)}</td>
-                        <td className="py-2 px-3 align-top text-sm text-gray-700">{r.quantity ?? "—"}</td>
-                        <td className="py-2 px-3 align-top text-sm text-gray-700">
-                          <div className="flex gap-2">
-                            <Link href={`/dashboard/tasks/${r.id}/edit`} className="text-sm text-blue-600 hover:underline">View</Link>
-                          </div>
-                        </td>
+                        {/* Removed completedAt, duration, qty columns */}
                       </tr>
                     ))}
                   </tbody>
