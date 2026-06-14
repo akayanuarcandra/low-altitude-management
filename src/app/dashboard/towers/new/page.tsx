@@ -80,24 +80,6 @@ export default async function NewTowerPage() {
                 </form>
               </CardContent>
             </Card>
-
-            {towersDTO.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Map View</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-170 rounded-md overflow-hidden border">
-                    <MapView
-                      towers={towersDTO}
-                      drones={[]}
-                      waypoints={[]}
-                      showWaypointToggle={false}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
 
           {/* Right column removed - tower list intentionally hidden on create page */}
